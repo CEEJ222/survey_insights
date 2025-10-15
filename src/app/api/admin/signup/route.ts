@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create admin user
+    // Create admin user (first user becomes company_admin)
     const { error: adminError } = await (supabaseAdmin
       .from('admin_users')
       .insert({
@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
         company_id: company.id,
         email,
         full_name: fullName,
-        role: 'admin',
+        role: 'company_admin', // First user is always company admin
+        is_active: true,
       } as any) as any)
 
     if (adminError) {

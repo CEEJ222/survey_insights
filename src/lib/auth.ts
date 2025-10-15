@@ -36,3 +36,33 @@ export async function getAdminUser(userId: string) {
   return { data, error }
 }
 
+export async function checkUserRole(userId: string, allowedRoles: string[]) {
+  const { data, error } = await supabase
+    .from('admin_users')
+    .select('role, is_active')
+    .eq('id', userId)
+    .single()
+
+  if (error || !data) {
+    return { hasPermission: false, error }
+  }
+
+  const hasPermission = data.is_active && allowedRoles.includes(data.role)
+  return { hasPermission, role: data.role, isActive: data.is_active }
+}
+
+export async function isCompanyAdmin(userId: string) {
+  const { hasPermission } = await checkUserRole(userId, ['company_admin'])
+  return hasPermission
+}
+
+export async function canManageSurveys(userId: string) {
+  const { hasPermission } = await checkUserRole(userId, ['company_admin', 'admin'])
+  return hasPermission
+}
+
+export async function canManageUsers(userId: string) {
+  const { hasPermission } = await checkUserRole(userId, ['company_admin'])
+  return hasPermission
+}
+
