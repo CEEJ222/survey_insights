@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { getCurrentUser, getAdminUser, signOut } from '@/lib/auth'
-import { Loader2, LayoutDashboard, FileText, Send, LogOut, BarChart3, Menu, X, Users } from 'lucide-react'
+import { Loader2, LayoutDashboard, FileText, Send, LogOut, BarChart3, Menu, X, Users, Bot } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 
 export default function DashboardLayout({
@@ -91,6 +91,18 @@ export default function DashboardLayout({
           <Button variant={pathname === '/admin/dashboard/responses' ? 'secondary' : 'ghost'} className="w-full justify-start">
             <BarChart3 className="mr-2 h-4 w-4" />
             Responses
+          </Button>
+        </Link>
+        <Link href="/admin/dashboard/customers" onClick={() => setMobileMenuOpen(false)}>
+          <Button variant={pathname?.startsWith('/admin/dashboard/customers') ? 'secondary' : 'ghost'} className="w-full justify-start">
+            <Users className="mr-2 h-4 w-4" />
+            👥 Customers
+          </Button>
+        </Link>
+        <Link href="/admin/dashboard/ai-test" onClick={() => setMobileMenuOpen(false)}>
+          <Button variant={pathname === '/admin/dashboard/ai-test' ? 'secondary' : 'ghost'} className="w-full justify-start">
+            <Bot className="mr-2 h-4 w-4" />
+            🤖 AI Test
           </Button>
         </Link>
         {adminUser?.role === 'company_admin' && (

@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Stop script for Survey Insights development servers
+# Kills processes on common development ports
+
+echo "🛑 Stopping development servers..."
+
+# Common ports to check
+PORTS=(3000 3001 5432 54321)
+
+for PORT in "${PORTS[@]}"; do
+    # Find process ID on the port
+    PID=$(lsof -ti:$PORT)
+    
+    if [ ! -z "$PID" ]; then
+        echo "   Killing process on port $PORT (PID: $PID)"
+        kill -9 $PID 2>/dev/null
+        
+        # Verify the process was killed
+        sleep 0.5
+        if lsof -ti:$PORT > /dev/null 2>&1; then
+            echo "   ⚠️  Failed to kill process on port $PORT"
+        else
+            echo "   ✅ Successfully stopped process on port $PORT"
+        fi
+    else
+        echo "   ℹ️  No process found on port $PORT"
+    fi
+done
+
+# Also kill any Next.js dev server processes by name
+echo ""
+echo "🔍 Checking for Next.js processes..."
+NEXT_PIDS=$(pgrep -f "next dev" | xargs)
+
+if [ ! -z "$NEXT_PIDS" ]; then
+    echo "   Killing Next.js dev processes: $NEXT_PIDS"
+    pkill -9 -f "next dev" 2>/dev/null
+    echo "   ✅ Next.js processes stopped"
+else
+    echo "   ℹ️  No Next.js processes found"
+fi
+
+# Check for node processes related to this project
+echo ""
+echo "🔍 Checking for node processes in this directory..."
+PROJECT_DIR=$(pwd)
+NODE_PIDS=$(ps aux | grep node | grep "$PROJECT_DIR" | grep -v grep | awk '{print $2}' | xargs)
+
+if [ ! -z "$NODE_PIDS" ]; then
+    echo "   Killing node processes: $NODE_PIDS"
+    kill -9 $NODE_PIDS 2>/dev/null
+    echo "   ✅ Node processes stopped"
+else
+    echo "   ℹ️  No node processes found for this project"
+fi
+
+echo ""
+echo "✨ Done! All development servers stopped."
+
