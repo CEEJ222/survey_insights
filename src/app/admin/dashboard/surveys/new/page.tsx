@@ -17,6 +17,7 @@ interface Question {
   id: string
   text: string
   order: number
+  type: 'open_ended' | 'multiple_choice' | 'rating' | 'matrix'
 }
 
 export default function NewSurveyPage() {
@@ -27,14 +28,14 @@ export default function NewSurveyPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [questions, setQuestions] = useState<Question[]>([
-    { id: '1', text: '', order: 0 },
+    { id: '1', text: '', order: 0, type: 'open_ended' },
   ])
 
   const addQuestion = () => {
     const newId = (questions.length + 1).toString()
     setQuestions([
       ...questions,
-      { id: newId, text: '', order: questions.length },
+      { id: newId, text: '', order: questions.length, type: 'open_ended' },
     ])
   }
 

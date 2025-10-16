@@ -7,6 +7,20 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Get authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    }
+
+    const token = authHeader.replace('Bearer ', '')
+
+    // Verify token with Supabase
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+    }
+    
     const targetUserId = params.id
     const body = await request.json()
     const { role, isActive } = body
@@ -31,11 +45,24 @@ export async function PATCH(
       )
     }
 
-    // Update user - RLS policies handle security
-    const { error: updateError } = await supabaseAdmin
+    // Get current user's company_id first
+    const { data: currentUser, error: currentUserError } = await supabaseAdmin
+      .from('admin_users')
+      .select('company_id')
+      .eq('id', user.id)
+      .single()
+
+    if (currentUserError || !currentUser) {
+      console.error('Error fetching current user:', currentUserError)
+      return NextResponse.json({ error: 'Current user not found' }, { status: 500 })
+    }
+
+    // Update user - ensure they're in the same company
+    const { error: updateError } = await (supabaseAdmin as any)
       .from('admin_users')
       .update(updates)
       .eq('id', targetUserId)
+      .eq('company_id', (currentUser as any).company_id)
 
     if (updateError) {
       console.error('Update error:', updateError)
@@ -58,13 +85,40 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Get authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    }
+
+    const token = authHeader.replace('Bearer ', '')
+
+    // Verify token with Supabase
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+    }
+    
     const targetUserId = params.id
 
-    // Delete from admin_users - RLS policies handle security
+    // Get current user's company_id first
+    const { data: currentUser, error: currentUserError } = await supabaseAdmin
+      .from('admin_users')
+      .select('company_id')
+      .eq('id', user.id)
+      .single()
+
+    if (currentUserError || !currentUser) {
+      console.error('Error fetching current user:', currentUserError)
+      return NextResponse.json({ error: 'Current user not found' }, { status: 500 })
+    }
+
+    // Delete from admin_users - ensure they're in the same company
     const { error: deleteError } = await supabaseAdmin
       .from('admin_users')
       .delete()
       .eq('id', targetUserId)
+      .eq('company_id', (currentUser as any).company_id)
 
     if (deleteError) {
       console.error('Delete error:', deleteError)

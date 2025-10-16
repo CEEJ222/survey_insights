@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, ArrowLeft, User, Mail, Calendar, Activity, TrendingUp, AlertTriangle, CheckCircle, MessageSquare, Star, Globe } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Loader2, ArrowLeft, User, Mail, Calendar, Activity, TrendingUp, AlertTriangle, CheckCircle, MessageSquare, Star, Globe, ExternalLink } from 'lucide-react'
+import { supabase } from '@/lib/supabase/client'
 
 interface Customer {
   id: string
@@ -65,6 +67,8 @@ export default function CustomerProfilePage() {
   const [sentimentTrend, setSentimentTrend] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackItem | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   useEffect(() => {
     fetchCustomerProfile()
@@ -73,7 +77,18 @@ export default function CustomerProfilePage() {
   const fetchCustomerProfile = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/admin/customers/${customerId}`)
+      
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch(`/api/admin/customers/${customerId}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
       
       if (!response.ok) {
         throw new Error('Failed to fetch customer profile')
@@ -91,6 +106,11 @@ export default function CustomerProfilePage() {
     }
   }
 
+  const handleFeedbackClick = (item: FeedbackItem) => {
+    setSelectedFeedback(item)
+    setModalOpen(true)
+  }
+
   const getHealthScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-600 bg-green-50'
     if (score >= 60) return 'text-yellow-600 bg-yellow-50'
@@ -103,13 +123,15 @@ export default function CustomerProfilePage() {
     return <AlertTriangle className="h-4 w-4" />
   }
 
-  const getSentimentColor = (score: number) => {
+  const getSentimentColor = (score: number | null) => {
+    if (score === null || score === undefined) return 'text-gray-600'
     if (score > 0.3) return 'text-green-600'
     if (score < -0.3) return 'text-red-600'
     return 'text-gray-600'
   }
 
-  const getSentimentLabel = (score: number) => {
+  const getSentimentLabel = (score: number | null) => {
+    if (score === null || score === undefined) return 'Neutral'
     if (score > 0.3) return 'Positive'
     if (score < -0.3) return 'Negative'
     return 'Neutral'
@@ -189,12 +211,12 @@ export default function CustomerProfilePage() {
               Back to Customers
             </Button>
           </Link>
-          <div>
-            <h1 className="text-3xl font-bold">
-              {customer.fullName || customer.email}
-            </h1>
-            <p className="text-gray-600 mt-1">Customer Profile</p>
-          </div>
+            <div>
+              <h1 className="text-3xl font-bold">
+                {customer.fullName || customer.email || 'Unknown Customer'}
+              </h1>
+              <p className="text-gray-600 mt-1">Customer Profile</p>
+            </div>
         </div>
         <Badge className={getHealthScoreColor(customer.healthScore)}>
           {getHealthScoreIcon(customer.healthScore)}
@@ -217,7 +239,7 @@ export default function CustomerProfilePage() {
                 <Mail className="h-4 w-4" />
                 <span className="font-medium">Email</span>
               </div>
-              <p className="font-mono text-sm">{customer.email}</p>
+              <p className="font-mono text-sm">{customer.email || 'No email provided'}</p>
             </div>
             
             <div className="space-y-2">
@@ -225,7 +247,7 @@ export default function CustomerProfilePage() {
                 <Calendar className="h-4 w-4" />
                 <span className="font-medium">Member Since</span>
               </div>
-              <p className="text-sm">{formatDate(customer.createdAt)}</p>
+              <p className="text-sm">{customer.createdAt ? formatDate(customer.createdAt) : 'Unknown'}</p>
             </div>
             
             <div className="space-y-2">
@@ -244,7 +266,7 @@ export default function CustomerProfilePage() {
             </div>
           </div>
 
-          {customer.identifiers.length > 0 && (
+          {customer.identifiers && customer.identifiers.length > 0 ? (
             <div className="mt-6">
               <h4 className="font-medium text-sm text-gray-700 mb-2">Identifiers</h4>
               <div className="flex flex-wrap gap-2">
@@ -255,12 +277,17 @@ export default function CustomerProfilePage() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div className="mt-6">
+              <h4 className="font-medium text-sm text-gray-700 mb-2">Identifiers</h4>
+              <p className="text-sm text-gray-500">No identifiers available</p>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* Analytics Overview */}
-      {analytics && (
+      {analytics ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -268,7 +295,7 @@ export default function CustomerProfilePage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Avg Sentiment</p>
                   <p className={`text-2xl font-bold ${getSentimentColor(analytics.avgSentiment)}`}>
-                    {analytics.avgSentiment.toFixed(2)}
+                    {analytics.avgSentiment?.toFixed(2) || '0.00'}
                   </p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-gray-400" />
@@ -318,6 +345,16 @@ export default function CustomerProfilePage() {
             </CardContent>
           </Card>
         </div>
+      ) : (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <Activity className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Analytics Available</h3>
+              <p className="text-gray-600">Analytics will appear once the customer has feedback data.</p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Main Content Tabs */}
@@ -346,45 +383,95 @@ export default function CustomerProfilePage() {
               ) : (
                 <div className="space-y-4">
                   {feedback.map((item) => (
-                    <div key={item.id} className="border rounded-lg p-4 space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          {getSourceIcon(item.sourceType)}
-                          <div>
-                            <h4 className="font-medium">
-                              {item.sourceData?.title || item.sourceType}
-                            </h4>
-                            <p className="text-sm text-gray-600">
-                              {formatDate(item.createdAt)}
-                            </p>
+                    <Card 
+                      key={item.id} 
+                      className="cursor-pointer hover:shadow-md transition-shadow duration-200 border-l-4 border-l-blue-500"
+                      onClick={() => handleFeedbackClick(item)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            {getSourceIcon(item.sourceType)}
+                            <div>
+                              <h4 className="font-medium">
+                                {item.sourceData?.title || item.sourceType}
+                              </h4>
+                              <p className="text-sm text-gray-600">
+                                {formatDate(item.createdAt)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={getSentimentColor(item.sentimentScore)}>
+                              {getSentimentLabel(item.sentimentScore)} ({item.sentimentScore?.toFixed(2) || 'N/A'})
+                            </Badge>
+                            {(item.priorityScore || 0) > 70 && (
+                              <Badge variant="destructive" className="text-xs">
+                                High Priority
+                              </Badge>
+                            )}
+                            <ExternalLink className="h-4 w-4 text-gray-400" />
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className={getSentimentColor(item.sentimentScore)}>
-                            {getSentimentLabel(item.sentimentScore)} ({item.sentimentScore.toFixed(2)})
-                          </Badge>
-                          {item.priorityScore > 70 && (
-                            <Badge variant="destructive" className="text-xs">
-                              High Priority
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        {item.content}
-                      </p>
-                      
-                      {item.aiTags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {item.aiTags.map((tag, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                        
+           <div className="text-sm text-gray-700 leading-relaxed mt-3">
+             {item.sourceType === 'survey' || item.sourceType === 'survey_response' ? (
+               <div className="space-y-1">
+                 {item.content ? (
+                   <>
+                     {item.content.split('\n\n').slice(0, 1).map((section, index) => (
+                       <div key={index}>
+                         {section.split('\n').map((line, lineIndex) => {
+                           if (line.includes(':')) {
+                             const [question, ...answerParts] = line.split(':')
+                             const answer = answerParts.join(':').trim()
+                             return (
+                               <div key={lineIndex}>
+                                 <span className="font-medium text-gray-800">{question.trim()}:</span>
+                                 <span className="ml-2">{answer}</span>
+                               </div>
+                             )
+                           } else {
+                             return <div key={lineIndex}>{line}</div>
+                           }
+                         })}
+                       </div>
+                     ))}
+                     {item.content.split('\n\n').length > 1 && (
+                       <div className="text-xs text-blue-600 mt-2 italic">
+                         Click to see {item.content.split('\n\n').length - 1} more question{item.content.split('\n\n').length - 1 !== 1 ? 's' : ''}...
+                       </div>
+                     )}
+                   </>
+                 ) : (
+                   <div className="text-gray-500 italic">No content available</div>
+                 )}
+               </div>
+             ) : (
+               <p className="line-clamp-2">{item.content || 'No content available'}</p>
+             )}
+           </div>
+                        
+                        {item.aiTags && item.aiTags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-3">
+                            {item.aiTags.slice(0, 3).map((tag, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {tag || 'Unknown Tag'}
+                              </Badge>
+                            ))}
+                            {item.aiTags.length > 3 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{item.aiTags.length - 3} more
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic mt-3">
+                            No tags available
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               )}
@@ -404,14 +491,14 @@ export default function CustomerProfilePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Positive</span>
                     <span className="text-sm text-green-600 font-medium">
-                      {analytics?.sentimentDistribution.positive || 0}
+                      {analytics?.sentimentDistribution?.positive || 0}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
                       className="bg-green-500 h-2 rounded-full" 
                       style={{ 
-                        width: `${((analytics?.sentimentDistribution.positive || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
+                        width: `${((analytics?.sentimentDistribution?.positive || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
                       }}
                     />
                   </div>
@@ -419,14 +506,14 @@ export default function CustomerProfilePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Neutral</span>
                     <span className="text-sm text-gray-600 font-medium">
-                      {analytics?.sentimentDistribution.neutral || 0}
+                      {analytics?.sentimentDistribution?.neutral || 0}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
                       className="bg-gray-500 h-2 rounded-full" 
                       style={{ 
-                        width: `${((analytics?.sentimentDistribution.neutral || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
+                        width: `${((analytics?.sentimentDistribution?.neutral || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
                       }}
                     />
                   </div>
@@ -434,14 +521,14 @@ export default function CustomerProfilePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Negative</span>
                     <span className="text-sm text-red-600 font-medium">
-                      {analytics?.sentimentDistribution.negative || 0}
+                      {analytics?.sentimentDistribution?.negative || 0}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
                       className="bg-red-500 h-2 rounded-full" 
                       style={{ 
-                        width: `${((analytics?.sentimentDistribution.negative || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
+                        width: `${((analytics?.sentimentDistribution?.negative || 0) / (analytics?.totalFeedback || 1)) * 100}%` 
                       }}
                     />
                   </div>
@@ -459,15 +546,18 @@ export default function CustomerProfilePage() {
                   <div className="space-y-2">
                     {analytics.topTags.map((tag, index) => (
                       <div key={index} className="flex justify-between items-center">
-                        <span className="text-sm font-medium">{tag.tag}</span>
+                        <span className="text-sm font-medium">{tag.tag || 'Unknown Tag'}</span>
                         <Badge variant="secondary" className="text-xs">
-                          {tag.count}
+                          {tag.count || 0}
                         </Badge>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-600">No tags available</p>
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-600">No tags available</p>
+                    <p className="text-xs text-gray-500 mt-1">Tags will appear as feedback is analyzed</p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -480,27 +570,163 @@ export default function CustomerProfilePage() {
               <CardTitle>Sentiment Trends (Last 30 Days)</CardTitle>
             </CardHeader>
             <CardContent>
-              {sentimentTrend.length > 0 ? (
+              {sentimentTrend && sentimentTrend.length > 0 ? (
                 <div className="space-y-3">
                   {sentimentTrend.map((trend, index) => (
                     <div key={index} className="flex items-center justify-between p-3 border rounded">
-                      <span className="text-sm font-medium">{formatDate(trend.date)}</span>
+                      <span className="text-sm font-medium">{trend.date ? formatDate(trend.date) : 'Unknown Date'}</span>
                       <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-600">{trend.count} items</span>
+                        <span className="text-sm text-gray-600">{trend.count || 0} items</span>
                         <Badge variant="outline" className={getSentimentColor(trend.avgSentiment)}>
-                          {trend.avgSentiment.toFixed(2)}
+                          {trend.avgSentiment?.toFixed(2) || '0.00'}
                         </Badge>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-600">No recent activity</p>
+                <div className="text-center py-8">
+                  <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Trends Available</h3>
+                  <p className="text-gray-600">Trends will appear as more feedback data is collected over time.</p>
+                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Feedback Detail Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedFeedback && getSourceIcon(selectedFeedback.sourceType)}
+              {selectedFeedback?.sourceData?.title || selectedFeedback?.sourceType || 'Feedback Details'}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedFeedback && formatDate(selectedFeedback.createdAt)}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedFeedback && (
+            <div className="space-y-6">
+               {/* Content */}
+               <div>
+                 <h4 className="font-medium text-sm text-gray-700 mb-2">Content</h4>
+                 <div className="bg-gray-50 rounded-lg p-4">
+                   {selectedFeedback.sourceType === 'survey' || selectedFeedback.sourceType === 'survey_response' ? (
+                     <div className="text-sm text-gray-900 leading-relaxed">
+                       {selectedFeedback.content ? (
+                         selectedFeedback.content.split('\n\n').map((section, index) => (
+                           <div key={index} className="mb-4 last:mb-0">
+                             {section.split('\n').map((line, lineIndex) => {
+                               if (line.includes(':')) {
+                                 const [question, ...answerParts] = line.split(':')
+                                 const answer = answerParts.join(':').trim()
+                                 return (
+                                   <div key={lineIndex}>
+                                     <div className="font-medium text-gray-800 mb-1">
+                                       {question.trim()}:
+                                     </div>
+                                     {answer && (
+                                       <div className="ml-4 text-gray-700 mb-2">
+                                         {answer}
+                                       </div>
+                                     )}
+                                   </div>
+                                 )
+                               } else {
+                                 return (
+                                   <div key={lineIndex} className="text-gray-700">
+                                     {line}
+                                   </div>
+                                 )
+                               }
+                             })}
+                           </div>
+                         ))
+                       ) : (
+                         <div className="text-gray-500 italic">No content available</div>
+                       )}
+                     </div>
+                   ) : (
+                     <p className="text-sm text-gray-900 leading-relaxed whitespace-pre-wrap">
+                       {selectedFeedback.content || 'No content available'}
+                     </p>
+                   )}
+                 </div>
+               </div>
+
+              {/* Analytics */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-medium text-sm text-gray-700 mb-2">Sentiment Analysis</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Score:</span>
+                      <Badge variant="outline" className={getSentimentColor(selectedFeedback.sentimentScore)}>
+                        {getSentimentLabel(selectedFeedback.sentimentScore)} ({selectedFeedback.sentimentScore?.toFixed(2) || 'N/A'})
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Priority:</span>
+                      <Badge variant={selectedFeedback.priorityScore && selectedFeedback.priorityScore > 70 ? "destructive" : "secondary"}>
+                        {selectedFeedback.priorityScore || 0}/100
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-sm text-gray-700 mb-2">Source Information</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Type:</span>
+                      <span className="text-sm font-medium">{selectedFeedback.sourceType}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">ID:</span>
+                      <span className="text-xs font-mono">{selectedFeedback.sourceData?.id || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Tags */}
+              {selectedFeedback.aiTags && selectedFeedback.aiTags.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-sm text-gray-700 mb-2">AI-Generated Tags</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedFeedback.aiTags.map((tag, index) => (
+                      <Badge key={index} variant="secondary" className="text-xs">
+                        {tag || 'Unknown Tag'}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata */}
+              <div className="border-t pt-4">
+                <h4 className="font-medium text-sm text-gray-700 mb-2">Metadata</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Created:</span>
+                    <span className="ml-2">{formatDate(selectedFeedback.createdAt)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Updated:</span>
+                    <span className="ml-2">{formatDate(selectedFeedback.updatedAt)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+
+

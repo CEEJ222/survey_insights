@@ -16,9 +16,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
-import { Loader2, Plus, Trash2, Send, FileText, AlertCircle } from 'lucide-react'
+import { Loader2, Plus, Trash2, Send, FileText, AlertCircle, Eye } from 'lucide-react'
 import { getCurrentUser } from '@/lib/auth'
 import { supabase } from '@/lib/supabase/client'
+import EmailPreview from '@/components/EmailPreview'
+import EmailVariables from '@/components/EmailVariables'
 
 interface Survey {
   id: string
@@ -50,6 +52,7 @@ export default function SendSurveyPage() {
   const [emailBody, setEmailBody] = useState(
     'Hi {name},\n\nWe value your opinion and would love to hear your feedback. Please take a few minutes to complete our survey.\n\nClick here to start: {link}\n\nThank you!'
   )
+  const [showPreview, setShowPreview] = useState(false)
 
   useEffect(() => {
     loadSurveys()
@@ -83,34 +86,35 @@ export default function SendSurveyPage() {
         .eq('status', 'active')
         .order('created_at', { ascending: false })
 
-      let surveysToSet = activeSurveys || []
+      let surveysToSet: { id: string; title: string; status: string }[] = activeSurveys || []
 
       // If a specific survey ID is provided in URL, check if it exists and load it
       const urlSurveyId = searchParams.get('surveyId')
       if (urlSurveyId) {
-        const { data: specificSurvey } = await supabase
+        const { data: specificSurvey, error } = await supabase
           .from('surveys')
           .select('id, title, status')
           .eq('id', urlSurveyId)
           .eq('company_id', adminUser.company_id)
           .single()
 
-        if (specificSurvey) {
+        if (specificSurvey && !error) {
+          const survey = specificSurvey as { id: string; title: string; status: string }
           // If the specific survey is not active, show a message and set it as selected
-          if (specificSurvey.status !== 'active') {
+          if (survey.status && survey.status !== 'active') {
             toast({
               title: 'Survey not active',
-              description: `"${specificSurvey.title}" is in ${specificSurvey.status} status. Please activate it first to send.`,
+              description: `"${survey.title}" is in ${survey.status} status. Please activate it first to send.`,
               variant: 'destructive',
             })
           } else {
             // Add to surveys list if not already there
-            const existsInList = surveysToSet.some(s => s.id === specificSurvey.id)
+            const existsInList = surveysToSet.some(s => s.id === survey.id)
             if (!existsInList) {
-              surveysToSet = [specificSurvey, ...surveysToSet]
+              surveysToSet = [survey, ...surveysToSet]
             }
           }
-          setSelectedSurveyId(specificSurvey.id)
+          setSelectedSurveyId(survey.id)
         }
       }
 
@@ -378,33 +382,38 @@ export default function SendSurveyPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
         </Tabs>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Email Settings</CardTitle>
-            <CardDescription>
-              Customize the email that will be sent (use {'{'}name{'}'} and {'{'}link{'}'} placeholders)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input
-                value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Message Body</Label>
-              <Textarea
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                rows={8}
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Email Settings</CardTitle>
+              <CardDescription>
+                Customize the email that will be sent (use {'{'}name{'}'} and {'{'}link{'}'} placeholders)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Subject</Label>
+                <Input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Message Body</Label>
+                <Textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  rows={8}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <EmailVariables />
+        </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
           <Button 
@@ -425,6 +434,15 @@ export default function SendSurveyPage() {
             )}
           </Button>
           <Button
+            variant="outline"
+            onClick={() => setShowPreview(true)}
+            disabled={loading}
+            className="w-full sm:w-auto"
+          >
+            <Eye className="mr-2 h-4 w-4" />
+            Preview Email
+          </Button>
+          <Button
             variant="ghost"
             onClick={() => router.back()}
             disabled={loading}
@@ -434,6 +452,46 @@ export default function SendSurveyPage() {
           </Button>
         </div>
       </div>
+
+      {/* Preview Dialog */}
+      {showPreview && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={() => setShowPreview(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-xl font-semibold">Email Preview</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPreview(false)}
+              >
+                ✕
+              </Button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <EmailPreview
+                recipients={recipients}
+                emailSubject={emailSubject}
+                emailBody={emailBody}
+                selectedSurveyId={selectedSurveyId}
+              />
+            </div>
+            <div className="flex justify-end gap-3 p-6 border-t">
+              <Button
+                variant="outline"
+                onClick={() => setShowPreview(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

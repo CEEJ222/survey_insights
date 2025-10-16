@@ -7,17 +7,47 @@ export async function GET(
 ) {
   try {
     const customerId = params.id
+    
+    // Get authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    }
+    
+    const token = authHeader.replace('Bearer ', '')
+    
+    // Verify token with Supabase
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+    }
+    
+    console.log('🔑 User authenticated:', user.id, user.email)
+
+    // Get user's company_id from admin_users table
+    const { data: adminUser, error: adminError } = await supabaseAdmin
+      .from('admin_users')
+      .select('company_id')
+      .eq('id', user.id)
+      .single()
+
+    if (adminError || !adminUser) {
+      console.error('❌ Admin user not found:', adminError)
+      return NextResponse.json({ error: 'Admin user not found' }, { status: 404 })
+    }
+
+    console.log('🏢 Company ID:', (adminUser as any).company_id)
 
     // Get customer details
     const { data: customer, error: customerError } = await supabaseAdmin
       .from('customers')
       .select(`
         id,
-        email,
+        primary_email,
         full_name,
         created_at,
         updated_at,
-        last_activity_at,
+        last_activity,
         customer_health_scores (
           health_score,
           calculated_at
@@ -28,6 +58,7 @@ export async function GET(
         )
       `)
       .eq('id', customerId)
+      .eq('company_id', (adminUser as any).company_id)
       .single()
 
     if (customerError || !customer) {
@@ -41,34 +72,15 @@ export async function GET(
         id,
         source_type,
         source_id,
+        source_table,
+        title,
         content,
         sentiment_score,
         priority_score,
         ai_tags,
         created_at,
         updated_at,
-        surveys (
-          title,
-          id
-        ),
-        survey_responses (
-          responses,
-          metadata
-        ),
-        interviews (
-          title,
-          transcript
-        ),
-        reviews (
-          platform,
-          rating,
-          content
-        ),
-        reddit_mentions (
-          subreddit,
-          post_title,
-          content
-        )
+        feedback_date
       `)
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false })
@@ -78,27 +90,28 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch feedback' }, { status: 500 })
     }
 
+
     // Calculate analytics
     const totalFeedback = feedbackItems?.length || 0
     const avgSentiment = totalFeedback > 0 
-      ? feedbackItems.reduce((sum, item) => sum + (item.sentiment_score || 0), 0) / totalFeedback
+      ? (feedbackItems as any[]).reduce((sum, item) => sum + (item.sentiment_score || 0), 0) / totalFeedback
       : 0
     
     const sentimentDistribution = {
-      positive: feedbackItems?.filter(item => (item.sentiment_score || 0) > 0.3).length || 0,
-      neutral: feedbackItems?.filter(item => (item.sentiment_score || 0) >= -0.3 && (item.sentiment_score || 0) <= 0.3).length || 0,
-      negative: feedbackItems?.filter(item => (item.sentiment_score || 0) < -0.3).length || 0
+      positive: (feedbackItems as any[])?.filter(item => (item.sentiment_score || 0) > 0.3).length || 0,
+      neutral: (feedbackItems as any[])?.filter(item => (item.sentiment_score || 0) >= -0.3 && (item.sentiment_score || 0) <= 0.3).length || 0,
+      negative: (feedbackItems as any[])?.filter(item => (item.sentiment_score || 0) < -0.3).length || 0
     }
 
-    const highPriorityCount = feedbackItems?.filter(item => (item.priority_score || 0) > 70).length || 0
+    const highPriorityCount = (feedbackItems as any[])?.filter(item => (item.priority_score || 0) > 70).length || 0
     
-    const sourceTypeDistribution = feedbackItems?.reduce((acc, item) => {
+    const sourceTypeDistribution = (feedbackItems as any[])?.reduce((acc, item) => {
       acc[item.source_type] = (acc[item.source_type] || 0) + 1
       return acc
     }, {} as Record<string, number>) || {}
 
     // Get all unique tags
-    const allTags = feedbackItems?.flatMap(item => item.ai_tags || []) || []
+    const allTags = (feedbackItems as any[])?.flatMap(item => item.ai_tags || []) || []
     const tagFrequency = allTags.reduce((acc, tag) => {
       acc[tag] = (acc[tag] || 0) + 1
       return acc
@@ -106,7 +119,7 @@ export async function GET(
 
     // Sort tags by frequency
     const topTags = Object.entries(tagFrequency)
-      .sort(([,a], [,b]) => b - a)
+      .sort(([,a], [,b]) => (b as number) - (a as number))
       .slice(0, 10)
       .map(([tag, count]) => ({ tag, count }))
 
@@ -114,7 +127,7 @@ export async function GET(
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     
-    const recentFeedback = feedbackItems?.filter(item => 
+    const recentFeedback = (feedbackItems as any[])?.filter(item => 
       new Date(item.created_at) >= thirtyDaysAgo
     ) || []
 
@@ -132,76 +145,148 @@ export async function GET(
     const sentimentTrendData = Object.entries(sentimentTrend)
       .map(([date, data]) => ({
         date,
-        count: data.total,
-        avgSentiment: data.sum / data.count
+        count: (data as any).total,
+        avgSentiment: (data as any).sum / (data as any).count
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-    // Transform feedback items for display
-    const transformedFeedback = feedbackItems?.map(item => {
-      let sourceData = null
-      
-      switch (item.source_type) {
-        case 'survey':
-          sourceData = {
-            type: 'survey',
-            title: item.surveys?.title || 'Survey',
-            id: item.source_id
-          }
-          break
-        case 'survey_response':
-          sourceData = {
-            type: 'survey_response',
-            title: item.surveys?.title || 'Survey Response',
-            id: item.source_id
-          }
-          break
-        case 'interview':
-          sourceData = {
-            type: 'interview',
-            title: item.interviews?.title || 'Interview',
-            id: item.source_id
-          }
-          break
-        case 'review':
-          sourceData = {
-            type: 'review',
-            title: `${item.reviews?.platform || 'Review'} (${item.reviews?.rating || 'N/A'} stars)`,
-            id: item.source_id
-          }
-          break
-        case 'reddit_mention':
-          sourceData = {
-            type: 'reddit_mention',
-            title: `Reddit: ${item.reddit_mentions?.subreddit || 'Unknown'}`,
-            id: item.source_id
-          }
-          break
-      }
+    // Transform feedback items for display and fetch additional content
+    const transformedFeedback = await Promise.all(
+      (feedbackItems as any[])?.map(async (item) => {
+        let sourceData = null
+        let enrichedContent = item.content
+        
+        // Create source data based on the source_type and available fields
+        switch (item.source_type) {
+          case 'survey':
+          case 'survey_response':
+            // For surveys, fetch the actual survey response content if content is missing
+            if (!item.content || item.content.trim() === '') {
+              try {
+                const { data: surveyResponse } = await supabaseAdmin
+                  .from('survey_responses')
+                  .select(`
+                    responses,
+                    surveys!inner (
+                      title,
+                      questions
+                    )
+                  `)
+                  .eq('id', item.source_id)
+                  .single()
+                
+                if (surveyResponse) {
+                  // Create a formatted content from survey responses
+                  const responses = (surveyResponse as any).responses || {}
+                  const questions = (surveyResponse as any).surveys?.questions
+                  
+                  if (questions && Array.isArray(questions) && questions.length > 0) {
+                    enrichedContent = questions.map((q: any) => {
+                      const answer = responses[q.id] || 'No answer provided'
+                      return `Q: ${q.text}\nA: ${answer}`
+                    }).join('\n\n')
+                  } else {
+                    // If no questions available, format the responses in a more readable way
+                    enrichedContent = Object.entries(responses)
+                      .map(([key, value]) => {
+                        // Try to make question IDs more readable
+                        const questionNumber = key.replace('q', 'Question ')
+                        return `${questionNumber}:\n${value}`
+                      })
+                      .join('\n\n')
+                  }
+                  
+                  sourceData = {
+                    type: item.source_type,
+                    title: (surveyResponse as any).surveys?.title || item.title || 'Survey',
+                    id: item.source_id
+                  }
+                } else {
+                  sourceData = {
+                    type: item.source_type,
+                    title: item.title || 'Survey',
+                    id: item.source_id
+                  }
+                }
+              } catch (error) {
+                console.error('Error fetching survey response:', error)
+                sourceData = {
+                  type: item.source_type,
+                  title: item.title || 'Survey',
+                  id: item.source_id
+                }
+              }
+            } else {
+              // Content already exists, just set source data
+              sourceData = {
+                type: item.source_type,
+                title: item.title || 'Survey',
+                id: item.source_id
+              }
+            }
+            break
+          case 'interview':
+            sourceData = {
+              type: 'interview',
+              title: item.title || 'Interview',
+              id: item.source_id
+            }
+            break
+          case 'review':
+            sourceData = {
+              type: 'review',
+              title: item.title || 'Review',
+              id: item.source_id
+            }
+            break
+          case 'reddit':
+            sourceData = {
+              type: 'reddit',
+              title: item.title || 'Reddit Mention',
+              id: item.source_id
+            }
+            break
+          case 'support_ticket':
+            sourceData = {
+              type: 'support_ticket',
+              title: item.title || 'Support Ticket',
+              id: item.source_id
+            }
+            break
+          default:
+            sourceData = {
+              type: item.source_type,
+              title: item.title || item.source_type,
+              id: item.source_id
+            }
+        }
 
-      return {
-        id: item.id,
-        sourceType: item.source_type,
-        content: item.content,
-        sentimentScore: item.sentiment_score,
-        priorityScore: item.priority_score,
-        aiTags: item.ai_tags || [],
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
-        sourceData
-      }
-    }) || []
+        const result = {
+          id: item.id,
+          sourceType: item.source_type,
+          content: enrichedContent,
+          sentimentScore: item.sentiment_score,
+          priorityScore: item.priority_score,
+          aiTags: item.ai_tags || [],
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          sourceData
+        }
+        
+        return result
+      }) || []
+    )
 
     return NextResponse.json({
       customer: {
-        id: customer.id,
-        email: customer.email,
-        fullName: customer.full_name,
-        createdAt: customer.created_at,
-        updatedAt: customer.updated_at,
-        lastActivityAt: customer.last_activity_at,
-        healthScore: customer.customer_health_scores?.[0]?.health_score || 50,
-        identifiers: customer.customer_identifiers || []
+        id: (customer as any).id,
+        email: (customer as any).primary_email,
+        fullName: (customer as any).full_name,
+        createdAt: (customer as any).created_at,
+        updatedAt: (customer as any).updated_at,
+        lastActivityAt: (customer as any).last_activity,
+        healthScore: (customer as any).customer_health_scores?.[0]?.health_score || 50,
+        identifiers: (customer as any).customer_identifiers || []
       },
       analytics: {
         totalFeedback,
@@ -223,3 +308,5 @@ export async function GET(
     )
   }
 }
+
+

@@ -613,3 +613,5 @@ GROUP BY c.id, c.full_name, c.primary_email, c.company_id;
 -- WHERE table_schema = 'public' 
 -- ORDER BY table_name;
 
+
+

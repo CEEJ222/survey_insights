@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
 // GET - List all users in the company
 export async function GET(request: NextRequest) {
@@ -7,26 +9,34 @@ export async function GET(request: NextRequest) {
     // Get authorization header
     const authHeader = request.headers.get('authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'No authorization header' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    }
+    
+    const token = authHeader.replace('Bearer ', '')
+    
+    // Verify token with Supabase
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
+    // Get current user's company_id first
+    const { data: currentUser, error: currentUserError } = await supabaseAdmin
+      .from('admin_users')
+      .select('company_id')
+      .eq('id', user.id)
+      .single()
 
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Invalid token' },
-        { status: 401 }
-      )
+    if (currentUserError || !currentUser) {
+      console.error('Error fetching current user:', currentUserError)
+      return NextResponse.json({ error: 'Current user not found' }, { status: 500 })
     }
 
-    // Get all users - RLS policies handle security automatically
+    // Get all users in the same company
     const { data: users, error: usersError } = await supabaseAdmin
       .from('admin_users')
       .select('id, email, full_name, role, is_active, created_at')
+      .eq('company_id', (currentUser as any).company_id)
       .order('created_at', { ascending: false })
 
     if (usersError) {
@@ -65,20 +75,15 @@ export async function POST(request: NextRequest) {
     // Get authorization header
     const authHeader = request.headers.get('authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'No authorization header' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
-
-    const token = authHeader.substring(7)
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Invalid token' },
-        { status: 401 }
-      )
+    
+    const token = authHeader.replace('Bearer ', '')
+    
+    // Verify token with Supabase
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
     // Get current user's company_id
@@ -124,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create admin user record with company_id
-    const { error: insertError } = await supabaseAdmin
+    const { error: insertError } = await (supabaseAdmin as any)
       .from('admin_users')
       .insert({
         id: authData.user.id,
@@ -132,7 +137,7 @@ export async function POST(request: NextRequest) {
         full_name: fullName,
         role,
         is_active: true,
-        company_id: currentUser.company_id,
+        company_id: (currentUser as any).company_id,
         invited_by: user.id,
       })
 

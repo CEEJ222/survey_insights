@@ -47,8 +47,8 @@ export async function checkUserRole(userId: string, allowedRoles: string[]) {
     return { hasPermission: false, error }
   }
 
-  const hasPermission = data.is_active && allowedRoles.includes(data.role)
-  return { hasPermission, role: data.role, isActive: data.is_active }
+  const hasPermission = (data as any).is_active && allowedRoles.includes((data as any).role)
+  return { hasPermission, role: (data as any).role, isActive: (data as any).is_active }
 }
 
 export async function isCompanyAdmin(userId: string) {

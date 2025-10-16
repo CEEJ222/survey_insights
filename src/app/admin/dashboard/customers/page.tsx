@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, Search, Users, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase/client'
 
 interface Customer {
   id: string
@@ -41,21 +42,32 @@ export default function CustomersPage() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [healthFilter, setHealthFilter] = useState('')
+  const [healthFilter, setHealthFilter] = useState('all')
   const [error, setError] = useState('')
 
   const fetchCustomers = async (page = 1) => {
     try {
       setLoading(true)
+      
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
       const params = new URLSearchParams({
         page: page.toString(),
         limit: '20'
       })
       
       if (search) params.append('search', search)
-      if (healthFilter) params.append('health', healthFilter)
+      if (healthFilter && healthFilter !== 'all') params.append('health', healthFilter)
 
-      const response = await fetch(`/api/admin/customers?${params}`)
+      const response = await fetch(`/api/admin/customers?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
       
       if (!response.ok) {
         throw new Error('Failed to fetch customers')
@@ -149,7 +161,7 @@ export default function CustomersPage() {
                 <SelectValue placeholder="Filter by health" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Health Scores</SelectItem>
+                <SelectItem value="all">All Health Scores</SelectItem>
                 <SelectItem value="80">Excellent (80+)</SelectItem>
                 <SelectItem value="60">Good (60-79)</SelectItem>
                 <SelectItem value="40">Fair (40-59)</SelectItem>
@@ -187,7 +199,7 @@ export default function CustomersPage() {
               <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No customers found</h3>
               <p className="text-gray-600">
-                {search || healthFilter 
+                {search || (healthFilter && healthFilter !== 'all')
                   ? 'Try adjusting your search or filter criteria'
                   : 'Customers will appear here as they submit feedback'
                 }
@@ -236,9 +248,11 @@ export default function CustomersPage() {
                           {customer.recentFeedback.map((feedback, index) => (
                             <Badge key={index} variant="outline" className="text-xs">
                               {feedback.sourceType} 
-                              <span className={getSentimentColor(feedback.sentimentScore)}>
-                                {' '}{feedback.sentimentScore.toFixed(1)}
-                              </span>
+                              {feedback.sentimentScore !== null && (
+                                <span className={getSentimentColor(feedback.sentimentScore)}>
+                                  {' '}{feedback.sentimentScore.toFixed(1)}
+                                </span>
+                              )}
                             </Badge>
                           ))}
                         </div>

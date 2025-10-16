@@ -9,6 +9,7 @@ import OpenAI from 'openai';
 import { Redis } from '@upstash/redis';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { createEnhancedTagNormalizer } from './enhanced-tag-normalizer';
 
 // Initialize clients
 const openai = new OpenAI({
@@ -35,6 +36,7 @@ export interface AIAnalysisResult {
   summary: string;
   sentiment: SentimentResult;
   tags: string[];
+  tagIds?: string[]; // New: actual tag IDs from the tags table
   priorityScore: number;
 }
 
@@ -61,11 +63,15 @@ export class AIOrchestrator {
    */
   async analyzeFeedback(text: string): Promise<AIAnalysisResult> {
     // Run all analyses in parallel for speed
-    const [summary, sentiment, tags] = await Promise.all([
+    const [summary, sentiment, rawTags] = await Promise.all([
       this.summarize(text),
       this.analyzeSentiment(text),
       this.generateTags(text),
     ]);
+
+    // NEW: Normalize tags to prevent duplicates
+    const normalizer = createTagNormalizer(this.companyId);
+    const tags = await normalizer.normalizeTags(rawTags);
 
     // Calculate priority score based on sentiment and content
     const priorityScore = this.calculatePriorityScore({
@@ -79,6 +85,24 @@ export class AIOrchestrator {
       tags,
       priorityScore,
     };
+  }
+
+  /**
+   * Process tags with context (for survey responses, reviews, etc.)
+   * This creates actual tags in the tags table and usage records
+   */
+  async processTagsWithContext(
+    rawTags: string[],
+    context: {
+      sourceType: 'survey_response' | 'feedback_item' | 'review' | 'interview';
+      sourceId: string;
+      customerId?: string;
+      sentimentScore?: number;
+      usedAt?: Date;
+    }
+  ): Promise<{ tagIds: string[]; normalizedTags: string[] }> {
+    const normalizer = createEnhancedTagNormalizer(this.companyId);
+    return await normalizer.processTags(rawTags, context);
   }
 
   // ==========================================================================
