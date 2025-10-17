@@ -218,10 +218,10 @@ export default function ResponsesPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 sm:space-y-4">
-                {response.surveys?.questions?.map((question: any) => (
+                {response.surveys?.questions?.questions?.map((question: any) => (
                   <div key={question.id} className="space-y-2">
                     <p className="font-semibold text-xs sm:text-sm text-gray-700 break-words">
-                      {question.text}
+                      {question.question || question.text}
                     </p>
                     <div className="p-2 sm:p-3 bg-gray-50 rounded-md">
                       <p className="text-xs sm:text-sm text-gray-800 whitespace-pre-wrap break-words">

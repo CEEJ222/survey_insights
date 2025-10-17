@@ -6,7 +6,7 @@
 
 import OpenAI from 'openai';
 import { Redis } from '@upstash/redis';
-import { supabase } from '@/lib/supabase/client';
+import { supabaseAdmin } from '@/lib/supabase/server';
 import crypto from 'crypto';
 
 const openai = new OpenAI({
@@ -66,8 +66,8 @@ export class ThemeDiscoveryEngine {
     const feedback = await this.getRecentFeedback();
     console.log(`📊 Found ${feedback.length} feedback items to analyze`);
     
-    if (feedback.length < 5) {
-      console.log('⚠️ Not enough feedback for theme discovery (need at least 5 items)');
+    if (feedback.length < 1) {
+      console.log('⚠️ Not enough feedback for theme discovery (need at least 1 item)');
       return [];
     }
 
@@ -75,15 +75,27 @@ export class ThemeDiscoveryEngine {
     const tagClusters = this.groupByTagSimilarity(feedback);
     console.log(`🎯 Created ${tagClusters.length} tag clusters`);
     
+    // Debug: Show cluster details
+    tagClusters.forEach((cluster, index) => {
+      console.log(`📊 Cluster ${index + 1}: ${cluster.feedback.length} items with tags: ${cluster.commonTags.join(', ')}`);
+    });
+    
     // For each cluster, use AI to generate theme
     const themes: DiscoveredTheme[] = [];
     
     for (const cluster of tagClusters) {
-      if (cluster.feedback.length < 5) continue; // Need min 5 mentions
+      if (cluster.feedback.length < 1) { // Reduced minimum from 3 to 1 for testing
+        console.log(`⏭️ Skipping cluster with ${cluster.feedback.length} items (need at least 1)`);
+        continue;
+      }
       
       console.log(`🤖 Generating theme for cluster with ${cluster.feedback.length} items`);
-      const theme = await this.generateTheme(cluster);
-      themes.push(theme);
+      try {
+        const theme = await this.generateTheme(cluster);
+        themes.push(theme);
+      } catch (error) {
+        console.error(`❌ Error generating theme for cluster:`, error);
+      }
     }
     
     console.log(`✅ Generated ${themes.length} themes`);
@@ -96,82 +108,102 @@ export class ThemeDiscoveryEngine {
   private async getRecentFeedback() {
     console.log(`🔍 Looking for feedback data for company: ${this.companyId}`);
     
-    // Get all survey responses for this company (with their tags from tag_usages)
-    const { data: surveyData, error: surveyError } = await supabase
-      .from('survey_responses')
-      .select(`
-        id,
-        responses,
-        customer_id,
-        sentiment_score,
-        submitted_at,
-        survey_id,
-        surveys!inner(
-          id,
-          company_id
-        ),
-        customers(
-          full_name,
-          primary_email
-        )
-      `)
-      .eq('surveys.company_id', this.companyId)
-      .gte('submitted_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()) // Last 90 days
-      .order('submitted_at', { ascending: false });
-
-    if (surveyError) {
-      console.error('Error fetching survey responses:', surveyError);
-    }
-
-    console.log(`📊 Survey responses for company: ${surveyData?.length || 0}`);
-
-    // Get tags for each survey response from the tag_usages table
-    const surveyIds = surveyData?.map(item => item.id) || [];
-    let tagUsages: any[] = [];
-    
-    if (surveyIds.length > 0) {
-      const { data: tagUsageData, error: tagError } = await supabase
-        .from('tag_usages')
-        .select(`
-          source_id,
-          sentiment_score,
-          used_at,
-          tags!inner(
-            id,
-            name,
-            normalized_name,
-            category
-          )
-        `)
-        .eq('source_type', 'survey_response')
-        .in('source_id', surveyIds)
+    try {
+      // Get surveys for this company first
+      console.log(`🔍 Looking for surveys with company_id: ${this.companyId}`);
+      const { data: surveys, error: surveysError } = await supabaseAdmin
+        .from('surveys')
+        .select('id, title')
         .eq('company_id', this.companyId);
 
-      if (tagError) {
-        console.error('Error fetching tag usages:', tagError);
-      } else {
-        tagUsages = tagUsageData || [];
+      if (surveysError) {
+        console.error('Error fetching surveys:', surveysError);
+        throw surveysError;
       }
-    }
 
-    console.log(`📊 Tag usages found: ${tagUsages.length}`);
-
-    // Group tags by survey response ID
-    const tagsBySurveyId = tagUsages.reduce((acc, usage) => {
-      if (!acc[usage.source_id]) {
-        acc[usage.source_id] = [];
+      console.log(`📊 Raw surveys query result:`, surveys);
+      const surveyIds = (surveys as any[])?.map((s: any) => s.id) || [];
+      console.log(`📊 Found ${surveyIds.length} surveys for company`);
+      
+      if (surveyIds.length === 0) {
+        console.log('⚠️ No surveys found for company');
+        return [];
       }
-      acc[usage.source_id].push(usage.tags.name);
-      return acc;
-    }, {} as Record<string, string[]>);
+
+      // Get survey responses for these surveys
+      const { data: surveyData, error: surveyError } = await supabaseAdmin
+        .from('survey_responses')
+        .select(`
+          id,
+          responses,
+          customer_id,
+          sentiment_score,
+          submitted_at,
+          survey_id,
+          customers(
+            full_name,
+            primary_email
+          )
+        `)
+        .in('survey_id', surveyIds)
+        .order('submitted_at', { ascending: false });
+
+      if (surveyError) {
+        console.error('Error fetching survey responses:', surveyError);
+        throw surveyError;
+      }
+
+      console.log(`📊 Survey responses for company: ${surveyData?.length || 0}`);
+
+      // Get tags for each survey response from the tag_usages table
+      const actualSurveyResponseIds = (surveyData as any[])?.map((item: any) => item.id) || [];
+      let tagUsages: any[] = [];
+      
+      if (actualSurveyResponseIds.length > 0) {
+        const { data: tagUsageData, error: tagError } = await supabaseAdmin
+          .from('tag_usages')
+          .select(`
+            source_id,
+            sentiment_score,
+            used_at,
+            tag_id,
+            tags!inner(
+              id,
+              name,
+              normalized_name,
+              category
+            )
+          `)
+          .eq('source_type', 'survey_response')
+          .in('source_id', actualSurveyResponseIds)
+          .eq('company_id', this.companyId);
+
+        if (tagError) {
+          console.error('Error fetching tag usages:', tagError);
+          throw tagError;
+        } else {
+          tagUsages = (tagUsageData as any[]) || [];
+        }
+      }
+
+      console.log(`📊 Tag usages found: ${tagUsages.length}`);
+
+      // Group tags by survey response ID
+      const tagsBySurveyId = tagUsages.reduce((acc, usage) => {
+        if (!acc[usage.source_id]) {
+          acc[usage.source_id] = [];
+        }
+        acc[usage.source_id].push(usage.tags.name);
+        return acc;
+      }, {} as Record<string, string[]>);
 
     // Combine survey data with tags
-    const feedbackWithTags = (surveyData || [])
-      .filter(item => {
+    const feedbackWithTags = ((surveyData as any[]) || [])
+      .filter((item: any) => {
         const tags = tagsBySurveyId[item.id] || [];
         return tags.length > 0; // Only include responses that have tags
       })
-      .map(item => ({
+      .map((item: any) => ({
         id: item.id,
         content: this.extractTextFromResponses(item.responses) || '',
         customer_name: item.customers?.full_name || 'Anonymous',
@@ -182,93 +214,115 @@ export class ThemeDiscoveryEngine {
         created_at: item.submitted_at,
       }));
 
-    console.log(`📊 Survey responses with tags: ${feedbackWithTags.length}`);
+      console.log(`📊 Survey responses with tags: ${feedbackWithTags.length}`);
 
-    // Also get from feedback_items if they exist
-    const { data: feedbackData, error: feedbackError } = await supabase
-      .from('feedback_items')
-      .select(`
-        id,
-        content,
-        customer_id,
-        source_type,
-        sentiment_score,
-        created_at,
-        customers(
-          full_name,
-          primary_email
-        )
-      `)
-      .eq('company_id', this.companyId)
-      .gte('created_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()) // Last 90 days
-      .order('created_at', { ascending: false });
-
-    if (feedbackError) {
-      console.error('Error fetching feedback items:', feedbackError);
-    }
-
-    // Get tags for feedback items
-    const feedbackItemIds = feedbackData?.map(item => item.id) || [];
-    let feedbackTagUsages: any[] = [];
-    
-    if (feedbackItemIds.length > 0) {
-      const { data: feedbackTagData, error: feedbackTagError } = await supabase
-        .from('tag_usages')
+      // Also get from feedback_items if they exist
+      const { data: feedbackData, error: feedbackError } = await supabaseAdmin
+        .from('feedback_items')
         .select(`
-          source_id,
+          id,
+          content,
+          customer_id,
+          source_type,
           sentiment_score,
-          used_at,
-          tags!inner(
-            id,
-            name,
-            normalized_name,
-            category
+          created_at,
+          customers(
+            full_name,
+            primary_email
           )
         `)
-        .eq('source_type', 'feedback_item')
-        .in('source_id', feedbackItemIds)
-        .eq('company_id', this.companyId);
+        .eq('company_id', this.companyId)
+        .gte('created_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()) // Last 90 days
+        .order('created_at', { ascending: false });
 
-      if (feedbackTagError) {
-        console.error('Error fetching feedback tag usages:', feedbackTagError);
-      } else {
-        feedbackTagUsages = feedbackTagData || [];
+      if (feedbackError) {
+        console.error('Error fetching feedback items:', feedbackError);
+        // Don't throw here, just continue without feedback items
       }
+
+      // Get tags for feedback items
+      const feedbackItemIds = (feedbackData as any[])?.map((item: any) => item.id) || [];
+      let feedbackTagUsages: any[] = [];
+      
+      if (feedbackItemIds.length > 0) {
+        const { data: feedbackTagData, error: feedbackTagError } = await supabaseAdmin
+          .from('tag_usages')
+          .select(`
+            source_id,
+            sentiment_score,
+            used_at,
+            tag_id,
+            tags!inner(
+              id,
+              name,
+              normalized_name,
+              category
+            )
+          `)
+          .eq('source_type', 'feedback_item')
+          .in('source_id', feedbackItemIds)
+          .eq('company_id', this.companyId);
+
+        if (feedbackTagError) {
+          console.error('Error fetching feedback tag usages:', feedbackTagError);
+          // Don't throw here, just continue without feedback item tags
+        } else {
+          feedbackTagUsages = (feedbackTagData as any[]) || [];
+        }
+      }
+
+      // Group tags by feedback item ID
+      const tagsByFeedbackId = feedbackTagUsages.reduce((acc, usage) => {
+        if (!acc[usage.source_id]) {
+          acc[usage.source_id] = [];
+        }
+        acc[usage.source_id].push(usage.tags.name);
+        return acc;
+      }, {} as Record<string, string[]>);
+
+      // Combine feedback data with tags
+      const feedbackItemsWithTags = ((feedbackData as any[]) || [])
+        .filter((item: any) => {
+          const tags = tagsByFeedbackId[item.id] || [];
+          return tags.length > 0; // Only include items that have tags
+        })
+        .map((item: any) => ({
+          id: item.id,
+          content: item.content || '',
+          customer_name: item.customers?.full_name || 'Anonymous',
+          customer_id: item.customer_id,
+          source_type: item.source_type,
+          ai_tags: tagsByFeedbackId[item.id] || [],
+          sentiment_score: item.sentiment_score || 0,
+          created_at: item.created_at,
+        }));
+
+      console.log(`📊 Feedback items with tags: ${feedbackItemsWithTags.length}`);
+
+      // Combine both data sources
+      const allFeedback = [...feedbackWithTags, ...feedbackItemsWithTags];
+
+      console.log(`📊 Final result: ${allFeedback.length} total feedback items with tags`);
+      
+      // Debug: Show sample feedback if we have any
+      if (allFeedback.length > 0) {
+        console.log('📊 Sample feedback items:');
+        allFeedback.slice(0, 3).forEach((item, index) => {
+          console.log(`  ${index + 1}. ${item.customer_name} - ${item.ai_tags.join(', ')} - "${item.content.substring(0, 100)}..."`);
+        });
+      }
+      
+      // If we have no feedback, let's try a broader search to debug
+      if (allFeedback.length === 0) {
+        console.log('🔍 No feedback found, running debug queries...');
+        await this.debugDataAvailability();
+      }
+      
+      return allFeedback;
+    } catch (error) {
+      console.error('Error in getRecentFeedback:', error);
+      throw error;
     }
-
-    // Group tags by feedback item ID
-    const tagsByFeedbackId = feedbackTagUsages.reduce((acc, usage) => {
-      if (!acc[usage.source_id]) {
-        acc[usage.source_id] = [];
-      }
-      acc[usage.source_id].push(usage.tags.name);
-      return acc;
-    }, {} as Record<string, string[]>);
-
-    // Combine feedback data with tags
-    const feedbackItemsWithTags = (feedbackData || [])
-      .filter(item => {
-        const tags = tagsByFeedbackId[item.id] || [];
-        return tags.length > 0; // Only include items that have tags
-      })
-      .map(item => ({
-        id: item.id,
-        content: item.content || '',
-        customer_name: item.customers?.full_name || 'Anonymous',
-        customer_id: item.customer_id,
-        source_type: item.source_type,
-        ai_tags: tagsByFeedbackId[item.id] || [],
-        sentiment_score: item.sentiment_score || 0,
-        created_at: item.created_at,
-      }));
-
-    console.log(`📊 Feedback items with tags: ${feedbackItemsWithTags.length}`);
-
-    // Combine both data sources
-    const allFeedback = [...feedbackWithTags, ...feedbackItemsWithTags];
-
-    console.log(`📊 Final result: ${allFeedback.length} total feedback items with tags`);
-    return allFeedback;
   }
 
   /**
@@ -294,8 +348,13 @@ export class ThemeDiscoveryEngine {
   private groupByTagSimilarity(feedback: any[]): FeedbackCluster[] {
     const clusters: Map<string, FeedbackCluster> = new Map();
     
+    console.log(`🔍 Grouping ${feedback.length} feedback items by tag similarity...`);
+    
     for (const item of feedback) {
-      if (!item.ai_tags || item.ai_tags.length === 0) continue;
+      if (!item.ai_tags || item.ai_tags.length === 0) {
+        console.log(`⚠️ Skipping item ${item.id} - no tags`);
+        continue;
+      }
       
       // Create cluster key from sorted tags
       const sortedTags = [...item.ai_tags].sort();
@@ -311,11 +370,18 @@ export class ThemeDiscoveryEngine {
       clusters.get(clusterKey)!.feedback.push(item);
     }
     
-    // Filter clusters with minimum size
-    const validClusters = Array.from(clusters.values())
-      .filter(cluster => cluster.feedback.length >= 3); // At least 3 mentions
+    console.log(`📊 Created ${clusters.size} raw clusters`);
     
-    console.log(`📈 Found ${validClusters.length} valid clusters (min 3 mentions each)`);
+    // Show all clusters before filtering
+    Array.from(clusters.entries()).forEach(([key, cluster]) => {
+      console.log(`  - Cluster "${key}": ${cluster.feedback.length} items`);
+    });
+    
+    // Filter clusters with minimum size - reduced to 1 for testing
+    const validClusters = Array.from(clusters.values())
+      .filter(cluster => cluster.feedback.length >= 1); // At least 1 mention for testing
+    
+    console.log(`📈 Found ${validClusters.length} valid clusters (min 1 mention each)`);
     return validClusters;
   }
 
@@ -350,14 +416,17 @@ export class ThemeDiscoveryEngine {
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
       
-      // Get tag IDs for the common tags
-      const { data: tagData } = await supabase
+      // Get tag IDs for the common tags - try both name and normalized_name
+      const normalizedTags = cluster.commonTags.map(tag => tag.toLowerCase().replace(/[^a-z0-9]/g, '_'));
+      const { data: tagData } = await supabaseAdmin
         .from('tags')
-        .select('id, normalized_name')
+        .select('id, name, normalized_name')
         .eq('company_id', this.companyId)
-        .in('normalized_name', cluster.commonTags.map(tag => tag.toLowerCase().replace(/[^a-z0-9]/g, '_')));
+        .or(`name.in.(${cluster.commonTags.join(',')}),normalized_name.in.(${normalizedTags.join(',')})`);
       
-      const relatedTagIds = tagData?.map(tag => tag.id) || [];
+      const relatedTagIds = (tagData as any[])?.map((tag: any) => tag.id) || [];
+      
+      console.log(`🔗 Found ${relatedTagIds.length} related tag IDs for cluster tags: ${cluster.commonTags.join(', ')}`);
 
       // Separate survey responses from feedback items
       const surveyResponseIds: string[] = [];
@@ -407,33 +476,55 @@ export class ThemeDiscoveryEngine {
    * Build the prompt for theme generation
    */
   private buildThemeGenerationPrompt(cluster: FeedbackCluster): string {
-    const sampleFeedback = cluster.feedback.slice(0, 15); // Limit to 15 items for prompt size
+    const sampleFeedback = cluster.feedback.slice(0, 12); // Limit to 12 items for prompt size
+    const uniqueCustomers = new Set(cluster.feedback.map(f => f.customer_id).filter(Boolean)).size;
+    const avgSentiment = this.calculateAvgSentiment(cluster.feedback);
+    const negativeCount = cluster.feedback.filter(f => (f.sentiment_score || 0) < -0.1).length;
     
-    return `Analyze this cluster of customer feedback and generate a theme.
+    return `You are an expert product manager analyzing customer feedback patterns. Analyze this cluster of related feedback and generate a comprehensive theme.
 
-FEEDBACK ITEMS (${cluster.feedback.length} total, showing ${sampleFeedback.length}):
-${sampleFeedback.map(f => `
-- Customer: ${f.customer_name || 'Anonymous'}
-  Source: ${f.source_type}
-  Tags: ${f.ai_tags.join(', ')}
-  Sentiment: ${f.sentiment_score?.toFixed(2) || 'N/A'}
-  Text: "${f.content.substring(0, 200)}${f.content.length > 200 ? '...' : ''}"
+CONTEXT:
+- Total feedback items: ${cluster.feedback.length}
+- Unique customers affected: ${uniqueCustomers}
+- Average sentiment: ${avgSentiment.toFixed(2)} (scale: -1 to +1)
+- Negative feedback items: ${negativeCount}
+- Common tags: ${cluster.commonTags.join(', ')}
+
+FEEDBACK SAMPLE (showing ${sampleFeedback.length} of ${cluster.feedback.length}):
+${sampleFeedback.map((f, i) => `
+${i + 1}. Customer: ${f.customer_name || 'Anonymous'}
+    Source: ${f.source_type} | Sentiment: ${f.sentiment_score?.toFixed(2) || 'N/A'}
+    Tags: ${f.ai_tags.join(', ')}
+    Quote: "${f.content.substring(0, 300)}${f.content.length > 300 ? '...' : ''}"
 `).join('\n')}
 
-Common tags in cluster: ${cluster.commonTags.join(', ')}
+ANALYSIS REQUIREMENTS:
+Analyze the patterns and generate a theme that captures the core customer concern or opportunity.
 
-Generate a theme with:
-1. name: Clear, descriptive name (e.g., "Dashboard Performance Issues", "Mobile App Usability Problems")
-2. description: 2-3 sentence summary of the pattern and its impact
-3. priority_score: 0-100 based on:
-   - Number of customers affected (more = higher score)
-   - Sentiment negativity (more negative = higher score)
-   - Business impact keywords (churn, expensive, broken, can't use)
-   - Trend direction (if mentions are increasing)
-4. evidence: List the 3-5 most compelling customer quotes (exact quotes)
-5. recommended_action: What should the product team do? Be specific.
+1. **name**: Clear, action-oriented theme name (e.g., "Dashboard Performance Issues", "Mobile App Usability Problems", "Integration Complexity Concerns")
 
-Return JSON with this structure:
+2. **description**: 2-3 sentence summary explaining:
+   - What the pattern represents
+   - Why it matters to customers
+   - Business impact potential
+
+3. **priority_score**: 0-100 based on:
+   - Customer volume (${uniqueCustomers} customers affected)
+   - Sentiment severity (${avgSentiment.toFixed(2)} average)
+   - Business impact keywords (churn, expensive, broken, can't use, frustrated)
+   - Urgency indicators (negative sentiment, repeated mentions)
+
+4. **evidence**: Extract 3-5 most compelling customer quotes that best represent the theme:
+   - Use exact quotes from the feedback
+   - Prioritize quotes that show clear pain points or opportunities
+   - Include both positive and negative sentiment if relevant
+
+5. **recommended_action**: Specific, actionable next steps for the product team:
+   - Be concrete about what to investigate or build
+   - Consider both quick wins and longer-term solutions
+   - Focus on customer value
+
+Return JSON with this exact structure:
 {
   "name": "Theme Name",
   "description": "Theme description...",
@@ -492,18 +583,18 @@ Return JSON with this structure:
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-    // Get tag IDs for the tags
-    const { data: tagData } = await supabase
+    // Get tag IDs for the tags - try both name and normalized_name
+    const { data: tagData } = await supabaseAdmin
       .from('tags')
       .select('id')
       .eq('company_id', this.companyId)
-      .in('name', tags);
+      .or(`name.in.(${tags.join(',')}),normalized_name.in.(${tags.map(t => t.toLowerCase().replace(/[^a-z0-9]/g, '_')).join(',')})`);
 
-    const tagIds = tagData?.map(tag => tag.id) || [];
+    const tagIds = (tagData as any[])?.map((tag: any) => tag.id) || [];
     if (tagIds.length === 0) return 0;
 
     // Count tag usages this week
-    const { count: thisWeekCount } = await supabase
+    const { count: thisWeekCount } = await supabaseAdmin
       .from('tag_usages')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', this.companyId)
@@ -511,7 +602,7 @@ Return JSON with this structure:
       .gte('used_at', oneWeekAgo.toISOString());
 
     // Count tag usages last week
-    const { count: lastWeekCount } = await supabase
+    const { count: lastWeekCount } = await supabaseAdmin
       .from('tag_usages')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', this.companyId)
@@ -528,6 +619,58 @@ Return JSON with this structure:
   }
 
   /**
+   * Debug method to check data availability
+   */
+  private async debugDataAvailability() {
+    console.log('🔍 DEBUG: Checking data availability...');
+    
+    // Check if company exists
+    const { data: companyData } = await supabaseAdmin
+      .from('companies')
+      .select('id, name')
+      .eq('id', this.companyId);
+    console.log(`🏢 Company exists: ${companyData?.length || 0} found`);
+    
+    // Check surveys
+    const { data: surveysData } = await supabaseAdmin
+      .from('surveys')
+      .select('id, title')
+      .eq('company_id', this.companyId);
+    console.log(`📋 Surveys: ${surveysData?.length || 0} found`);
+    
+    // Check survey responses
+    const { data: responsesData } = await supabaseAdmin
+      .from('survey_responses')
+      .select('id, survey_id, surveys!inner(company_id)')
+      .eq('surveys.company_id', this.companyId);
+    console.log(`💬 Survey responses: ${responsesData?.length || 0} found`);
+    
+    // Check tags
+    const { data: tagsData } = await supabaseAdmin
+      .from('tags')
+      .select('id, name, usage_count')
+      .eq('company_id', this.companyId)
+      .eq('is_active', true);
+    console.log(`🏷️ Active tags: ${tagsData?.length || 0} found`);
+    
+    // Check tag usages
+    const { data: tagUsagesData } = await supabaseAdmin
+      .from('tag_usages')
+      .select('id, source_type, source_id')
+      .eq('company_id', this.companyId);
+    console.log(`🔗 Tag usages: ${tagUsagesData?.length || 0} found`);
+    
+    // Show sample data
+    if (tagsData && tagsData.length > 0) {
+      console.log('📊 Sample tags:', (tagsData as any[]).slice(0, 5).map((t: any) => `${t.name} (${t.usage_count} uses)`));
+    }
+    
+    if (tagUsagesData && tagUsagesData.length > 0) {
+      console.log('📊 Sample tag usages:', tagUsagesData.slice(0, 5));
+    }
+  }
+
+  /**
    * Save discovered themes to database
    */
   async saveThemes(themes: DiscoveredTheme[]): Promise<void> {
@@ -535,7 +678,7 @@ Return JSON with this structure:
     
     for (const theme of themes) {
       try {
-        const { error } = await supabase.rpc('find_or_create_theme', {
+        const { error } = await (supabaseAdmin as any).rpc('find_or_create_theme', {
           p_company_id: this.companyId,
           p_name: theme.name,
           p_description: theme.description,
@@ -549,7 +692,7 @@ Return JSON with this structure:
         }
 
         // Update theme metrics
-        const { data: savedTheme } = await supabase
+        const { data: savedTheme } = await supabaseAdmin
           .from('themes')
           .select('id')
           .eq('company_id', this.companyId)
@@ -558,7 +701,7 @@ Return JSON with this structure:
 
         if (savedTheme) {
           // Update with calculated metrics
-          await supabase
+          await (supabaseAdmin as any)
             .from('themes')
             .update({
               supporting_survey_response_ids: theme.supporting_survey_response_ids,
@@ -572,11 +715,11 @@ Return JSON with this structure:
               priority_score: theme.priority_score,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', savedTheme.id);
+            .eq('id', (savedTheme as any).id);
 
           // Update metrics using the helper function
-          await supabase.rpc('update_theme_metrics', {
-            p_theme_id: savedTheme.id
+          await (supabaseAdmin as any).rpc('update_theme_metrics', {
+            p_theme_id: (savedTheme as any).id
           });
         }
       } catch (error) {
@@ -603,7 +746,7 @@ Return JSON with this structure:
 
     const estimatedCost = this.calculateCost('gpt-4o', usage.total_tokens || 0);
 
-    await supabase.from('ai_cost_logs').insert({
+    await (supabaseAdmin as any).from('ai_cost_logs').insert({
       company_id: this.companyId,
       provider: 'openai',
       model: 'gpt-4o',

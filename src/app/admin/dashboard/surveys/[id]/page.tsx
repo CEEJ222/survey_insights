@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/components/ui/use-toast'
-import { Loader2, Link2, Send, BarChart3, Pause, Play, Trash2, Eye } from 'lucide-react'
+import { Loader2, Link2, Send, BarChart3, Pause, Play, Trash2, Eye, Tag } from 'lucide-react'
 import { getCurrentUser } from '@/lib/auth'
 import { supabase } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -33,6 +33,14 @@ interface SurveyLink {
   completed_at: string | null
 }
 
+interface SurveyTag {
+  id: string
+  name: string
+  category: string
+  color: string
+  usage_count: number
+}
+
 export default function SurveyDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -44,6 +52,7 @@ export default function SurveyDetailPage() {
   const [survey, setSurvey] = useState<Survey | null>(null)
   const [surveyLinks, setSurveyLinks] = useState<SurveyLink[]>([])
   const [responses, setResponses] = useState<any[]>([])
+  const [surveyTags, setSurveyTags] = useState<SurveyTag[]>([])
 
   useEffect(() => {
     loadSurveyData()
@@ -89,6 +98,42 @@ export default function SurveyDetailPage() {
         .order('submitted_at', { ascending: false })
 
       setResponses(responsesData || [])
+
+      // Load survey tags from survey responses
+      const { data: tagsData } = await supabase
+        .from('tag_usages')
+        .select(`
+          tags!inner (
+            id,
+            name,
+            category,
+            color
+          )
+        `)
+        .eq('source_type', 'survey_response')
+        .in('source_id', responsesData?.map(r => r.id) || [])
+
+      // Process tags and count usage
+      const tagMap = new Map<string, SurveyTag>()
+      tagsData?.forEach((usage: any) => {
+        const tag = usage.tags
+        if (tag) {
+          const existing = tagMap.get(tag.id)
+          if (existing) {
+            existing.usage_count += 1
+          } else {
+            tagMap.set(tag.id, {
+              id: tag.id,
+              name: tag.name,
+              category: tag.category,
+              color: tag.color,
+              usage_count: 1
+            })
+          }
+        }
+      })
+
+      setSurveyTags(Array.from(tagMap.values()))
     } catch (error) {
       console.error('Error loading survey:', error)
     } finally {
@@ -230,6 +275,7 @@ export default function SurveyDetailPage() {
           <TabsTrigger value="questions">Questions</TabsTrigger>
           <TabsTrigger value="links">Links ({surveyLinks.length})</TabsTrigger>
           <TabsTrigger value="responses">Responses ({responses.length})</TabsTrigger>
+          <TabsTrigger value="tags">Tags ({surveyTags.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="questions">
@@ -314,6 +360,63 @@ export default function SurveyDetailPage() {
                     View All Responses
                   </Button>
                 </Link>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tags">
+          <Card>
+            <CardHeader>
+              <CardTitle>Survey Tags</CardTitle>
+              <CardDescription>
+                AI-generated tags associated with this survey
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {surveyTags.length === 0 ? (
+                <p className="text-gray-600 text-center py-8">
+                  No tags associated with this survey yet.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {surveyTags.map((tag) => (
+                      <div
+                        key={tag.id}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="font-medium text-sm">{tag.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                            {tag.category}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {tag.usage_count} usage{tag.usage_count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <div className="flex items-center space-x-2">
+                      <Tag className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-800">
+                        Total Tags: {surveyTags.length}
+                      </span>
+                    </div>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Tags are automatically generated from survey responses using AI analysis.
+                    </p>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

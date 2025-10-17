@@ -8,6 +8,8 @@ This document outlines common issues encountered during development and their so
 - [Authentication Problems](#authentication-problems)
 - [Database Connection Issues](#database-connection-issues)
 - [Development Server Issues](#development-server-issues)
+- [AI Tag System Issues](#ai-tag-system-issues)
+- [Redis Cache Issues](#redis-cache-issues)
 
 ## Middleware Issues
 
@@ -547,6 +549,262 @@ curl -X GET http://localhost:3000/api/admin/users -v
    npm run dev
    ```
 
+## AI Tag System Issues
+
+### Problem: AI Tags Not Normalizing (Underscores vs Hyphens vs Spaces)
+**Symptoms:**
+- Tags appear with underscores like `user_friendly` instead of spaces
+- Inconsistent formatting between `user_friendly` and `user-friendly` and `user friendly`
+- AI generating tags with hyphens when spaces are expected
+- Old cached AI responses interfering with new normalization rules
+
+**Root Causes:**
+1. **Cached AI responses** - Redis cache contains old responses with different formatting rules
+2. **Inconsistent AI prompts** - AI prompts not clearly specifying the desired format
+3. **Mixed normalization approaches** - System switching between hardcoded rules and AI-based normalization
+
+**Solutions:**
+
+#### 1. Clear Redis Cache
+```bash
+# Create a script to clear Upstash Redis cache
+# clear_cache.js
+const { Redis } = require('@upstash/redis/cloudflare')
+
+const redis = Redis.fromEnv()
+
+async function clearCache() {
+  try {
+    const keys = await redis.keys('normalize:*')
+    if (keys.length > 0) {
+      await redis.del(...keys)
+      console.log(`✅ Cleared ${keys.length} cache keys`)
+    } else {
+      console.log('No cache keys found')
+    }
+  } catch (error) {
+    console.error('❌ Error clearing cache:', error)
+  }
+}
+
+clearCache()
+```
+
+#### 2. Update AI Prompts Consistently
+Ensure all AI prompts specify the exact format desired:
+```typescript
+// ✅ CORRECT - Clear format specification
+const prompt = `Extract 3-5 relevant tags from the feedback. Tags should be:
+- Lowercase
+- Single words or short phrases (max 2 words)
+- ALWAYS use spaces for multi-word tags (e.g., "feature request")
+- NEVER use underscores - use spaces or hyphens only
+- Categories like: feature names, issue types, emotions, topics`
+```
+
+#### 3. Remove Hardcoded Merge Rules
+Replace hardcoded tag merging with pure AI intelligence:
+```typescript
+// ❌ WRONG - Hardcoded rules
+const mergeRules = {
+  "accuracy": ["accurate", "accuracy-precision"],
+  "user_friendly": ["user-friendly", "user friendly"]
+}
+
+// ✅ CORRECT - Let AI handle semantic merging
+const prompt = `Merge similar concepts intelligently - use your AI knowledge to identify semantic duplicates.`
+```
+
+### Problem: Duplicate Tag Detection Finding Zero Duplicates
+**Symptoms:**
+- Duplicate detection system returns empty results
+- Obvious duplicates like "accuracy" vs "accurate" not detected
+- AI normalization working so well it prevents duplicates from being created
+- System shows "Found 0 duplicate groups" when duplicates exist
+
+**Root Causes:**
+1. **AI normalization preventing duplicates** - The real-time normalization is working too well
+2. **Duplicate detection running on already-normalized data** - No raw duplicates left to detect
+3. **Overly aggressive normalization** - AI merging similar tags during creation
+
+**Solutions:**
+
+#### 1. Check if Normalization is Working Too Well
+```bash
+# Query the database to see actual tag distribution
+# If you see mostly unique tags, normalization is working
+SELECT normalized_name, COUNT(*) as count 
+FROM tags 
+WHERE company_id = 'your-company-id' 
+GROUP BY normalized_name 
+ORDER BY count DESC;
+```
+
+#### 2. Focus on Real-time Normalization
+Instead of separate duplicate detection, rely on the AI normalization during tag creation:
+```typescript
+// The AI normalization in processTags() is the primary deduplication mechanism
+const normalizedTags = await this.normalizeTags(rawTags)
+// This handles duplicates in real-time, making separate detection redundant
+```
+
+#### 3. Clean Database for Testing
+If testing with a clean slate:
+```javascript
+// nuke_all_tags.js - Delete all tags for testing
+const { createClient } = require('@supabase/supabase-js')
+
+async function nukeAllTags() {
+  const supabase = createClient(url, serviceKey)
+  
+  // Delete all tag usages first (foreign key constraint)
+  await supabase.from('tag_usages').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+  
+  // Delete all tags
+  await supabase.from('tags').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+  
+  console.log('✅ All tags deleted')
+}
+```
+
+### Problem: 500 Errors When Processing Survey Responses
+**Symptoms:**
+- "Process Existing Responses" button causes 500 Internal Server Error
+- Terminal shows `SyntaxError: "[object Object]" is not valid JSON`
+- Redis cache corruption causing JSON parsing failures
+- AI processing failing due to cached data corruption
+
+**Root Causes:**
+1. **Corrupted Redis cache entries** - Cache contains non-JSON objects
+2. **Missing error handling** - JSON.parse() calls not wrapped in try-catch
+3. **Cache data type mismatches** - Expecting strings but getting objects
+
+**Solutions:**
+
+#### 1. Add Robust Error Handling
+```typescript
+// ✅ CORRECT - Safe JSON parsing with error handling
+try {
+  let cached = await redis.get(cacheKey)
+  if (cached && typeof cached === 'string') {
+    const parsed = JSON.parse(cached)
+    return parsed
+  }
+} catch (error) {
+  console.warn('Cache corruption detected, falling back to AI call')
+  // Continue with AI call instead of failing
+}
+```
+
+#### 2. Clear Corrupted Cache
+```javascript
+// Clear specific corrupted cache patterns
+const corruptedKeys = await redis.keys('normalize:*')
+await redis.del(...corruptedKeys)
+```
+
+#### 3. Implement Cache Validation
+```typescript
+function isValidCacheData(data: any): boolean {
+  return data && typeof data === 'string' && data.startsWith('{')
+}
+```
+
+## Redis Cache Issues
+
+### Problem: Cache Corruption Causing JSON Parse Errors
+**Symptoms:**
+- `SyntaxError: "[object Object]" is not valid JSON`
+- `SyntaxError: Unexpected token 'p', "planswift,"... is not valid JSON`
+- AI processing failing with cached data
+- Inconsistent behavior between requests
+
+**Root Causes:**
+1. **Mixed data types in cache** - Objects being stored as strings
+2. **Cache serialization issues** - Data not properly JSON stringified
+3. **Race conditions** - Multiple processes writing to same cache keys
+
+**Solutions:**
+
+#### 1. Validate Cache Data Before Parsing
+```typescript
+async function getCachedData(key: string) {
+  try {
+    const cached = await redis.get(key)
+    
+    // Validate cache data type
+    if (!cached || typeof cached !== 'string') {
+      return null
+    }
+    
+    // Validate JSON format
+    if (!cached.startsWith('{') && !cached.startsWith('[')) {
+      console.warn(`Invalid cache data format for key ${key}`)
+      return null
+    }
+    
+    return JSON.parse(cached)
+  } catch (error) {
+    console.warn(`Cache corruption for key ${key}:`, error.message)
+    return null
+  }
+}
+```
+
+#### 2. Clear All Cache Keys
+```javascript
+// clear_all_cache.js
+const { Redis } = require('@upstash/redis/cloudflare')
+const redis = Redis.fromEnv()
+
+async function clearAllCache() {
+  const keys = await redis.keys('*')
+  if (keys.length > 0) {
+    await redis.del(...keys)
+    console.log(`✅ Cleared ${keys.length} cache keys`)
+  }
+}
+```
+
+#### 3. Implement Cache TTL
+```typescript
+// Set reasonable expiration times to prevent stale data
+await redis.setex(cacheKey, 3600, JSON.stringify(data)) // 1 hour TTL
+```
+
+### Problem: AI Using Old Cached Responses
+**Symptoms:**
+- AI generating tags with old formatting (hyphens instead of spaces)
+- Prompt changes not taking effect
+- Inconsistent tag formats despite updated prompts
+- Cache serving stale responses
+
+**Solutions:**
+
+#### 1. Clear Cache After Prompt Changes
+```bash
+# Always clear cache after updating AI prompts
+node clear_cache.js
+```
+
+#### 2. Use Cache Versioning
+```typescript
+// Include version in cache keys to force refresh
+const cacheKey = `normalize:v2:${tagHash}`
+```
+
+#### 3. Add Cache Invalidation
+```typescript
+// Invalidate specific cache patterns when prompts change
+await redis.del(...(await redis.keys('normalize:*')))
+```
+
 ---
 
 **Remember:** Always fix TypeScript errors first, as they prevent middleware from loading. The middleware is the foundation of authentication in this application.
+
+**AI System Tips:**
+- Clear Redis cache after changing AI prompts
+- Use robust error handling for JSON parsing
+- Let AI handle semantic normalization instead of hardcoded rules
+- Monitor cache health and implement proper TTL

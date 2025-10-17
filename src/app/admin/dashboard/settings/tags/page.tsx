@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { 
   Tag, 
   TrendingUp, 
@@ -19,7 +20,11 @@ import {
   Sparkles,
   Lightbulb,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  X,
+  Users,
+  MessageSquare,
+  Calendar
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 import { supabase } from '@/lib/supabase/client'
@@ -62,6 +67,10 @@ export default function TagsThemesSettings() {
   const [discoveryLoading, setDiscoveryLoading] = useState(false)
   const [duplicateDetectionLoading, setDuplicateDetectionLoading] = useState(false)
   const [duplicateGroups, setDuplicateGroups] = useState<any[]>([])
+  const [selectedTheme, setSelectedTheme] = useState<ThemeData | null>(null)
+  const [themeDetailsOpen, setThemeDetailsOpen] = useState(false)
+  const [editingTheme, setEditingTheme] = useState<ThemeData | null>(null)
+  const [themeEditOpen, setThemeEditOpen] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -545,6 +554,55 @@ export default function TagsThemesSettings() {
     }
   }
 
+  const handleEditTheme = (theme: ThemeData) => {
+    setEditingTheme(theme)
+    setThemeEditOpen(true)
+  }
+
+  const handleViewThemeDetails = (theme: ThemeData) => {
+    setSelectedTheme(theme)
+    setThemeDetailsOpen(true)
+  }
+
+  const handleArchiveTheme = async (theme: ThemeData) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch(`/api/admin/themes/${theme.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'archived'
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to archive theme')
+      }
+
+      toast({
+        title: 'Theme Archived',
+        description: `Archived theme: ${theme.title}`,
+      })
+
+      // Reload themes
+      await loadThemes()
+    } catch (error) {
+      console.error('Error archiving theme:', error)
+      toast({
+        title: 'Archive Failed',
+        description: error instanceof Error ? error.message : 'Failed to archive theme',
+        variant: 'destructive'
+      })
+    }
+  }
+
   const getSentimentColor = (sentiment: number) => {
     if (sentiment > 0.3) return 'text-green-600'
     if (sentiment < -0.3) return 'text-red-600'
@@ -866,11 +924,26 @@ export default function TagsThemesSettings() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleEditTheme(theme)}
+                        >
                           <Edit3 className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleViewThemeDetails(theme)}
+                        >
                           View Details
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleArchiveTheme(theme)}
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -943,6 +1016,256 @@ export default function TagsThemesSettings() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Theme Details Modal */}
+      <Dialog open={themeDetailsOpen} onOpenChange={setThemeDetailsOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lightbulb className="h-5 w-5" />
+              Theme Details: {selectedTheme?.title}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedTheme && (
+            <div className="space-y-6">
+              {/* Theme Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900">Customers Affected</span>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-900">{selectedTheme.customer_count || 0}</div>
+                </div>
+                
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-900">Feedback Items</span>
+                  </div>
+                  <div className="text-2xl font-bold text-green-900">{selectedTheme.feedback_count}</div>
+                </div>
+                
+                <div className="bg-orange-50 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <BarChart3 className="h-4 w-4 text-orange-600" />
+                    <span className="text-sm font-medium text-orange-900">Priority Score</span>
+                  </div>
+                  <div className="text-2xl font-bold text-orange-900">{Math.round(selectedTheme.confidence * 100)}%</div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <h3 className="font-semibold mb-2">Description</h3>
+                <p className="text-gray-700">{selectedTheme.description}</p>
+              </div>
+
+              {/* Tags */}
+              <div>
+                <h3 className="font-semibold mb-2">Related Tags</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedTheme.supporting_tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sentiment */}
+              <div>
+                <h3 className="font-semibold mb-2">Average Sentiment</h3>
+                <div className={`text-lg font-medium ${getSentimentColor(selectedTheme.avg_sentiment)}`}>
+                  {selectedTheme.avg_sentiment > 0 ? '+' : ''}{selectedTheme.avg_sentiment.toFixed(2)}
+                  <span className="text-sm text-gray-500 ml-2">
+                    ({selectedTheme.avg_sentiment > 0.3 ? 'Positive' : selectedTheme.avg_sentiment < -0.3 ? 'Negative' : 'Neutral'})
+                  </span>
+                </div>
+              </div>
+
+              {/* Trend */}
+              {selectedTheme.trend && (
+                <div>
+                  <h3 className="font-semibold mb-2">Trend</h3>
+                  <Badge variant="outline">
+                    {selectedTheme.trend === 'increasing' ? '📈' : selectedTheme.trend === 'decreasing' ? '📉' : '📊'} {selectedTheme.trend}
+                  </Badge>
+                </div>
+              )}
+
+              {/* Status */}
+              {selectedTheme.status && (
+                <div>
+                  <h3 className="font-semibold mb-2">Status</h3>
+                  <Badge variant={selectedTheme.status === 'active' ? 'default' : 'secondary'}>
+                    {selectedTheme.status}
+                  </Badge>
+                </div>
+              )}
+
+              {/* Created Date */}
+              {selectedTheme.created_at && (
+                <div>
+                  <h3 className="font-semibold mb-2">Created</h3>
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Calendar className="h-4 w-4" />
+                    {new Date(selectedTheme.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => handleEditTheme(selectedTheme)}>
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Edit Theme
+                </Button>
+                <Button variant="outline" onClick={() => handleArchiveTheme(selectedTheme)}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Archive
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Theme Edit Modal */}
+      <Dialog open={themeEditOpen} onOpenChange={setThemeEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit3 className="h-5 w-5" />
+              Edit Theme: {editingTheme?.title}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {editingTheme && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <Label htmlFor="theme-title">Theme Title</Label>
+                  <Input
+                    id="theme-title"
+                    value={editingTheme.title}
+                    onChange={(e) => setEditingTheme({...editingTheme, title: e.target.value})}
+                    placeholder="Enter theme title"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="theme-description">Description</Label>
+                  <textarea
+                    id="theme-description"
+                    className="w-full p-2 border border-gray-300 rounded-md min-h-[100px]"
+                    value={editingTheme.description}
+                    onChange={(e) => setEditingTheme({...editingTheme, description: e.target.value})}
+                    placeholder="Enter theme description"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="theme-status">Status</Label>
+                  <select
+                    id="theme-status"
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    value={editingTheme.status || 'active'}
+                    onChange={(e) => setEditingTheme({...editingTheme, status: e.target.value as 'active' | 'archived' | 'in_progress'})}
+                  >
+                    <option value="active">Active</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Supporting Tags */}
+              <div>
+                <Label>Related Tags</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {editingTheme.supporting_tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Tags are automatically managed by AI and cannot be edited directly.
+                </p>
+              </div>
+
+              {/* Metrics (Read-only) */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium">Feedback Items</Label>
+                  <div className="text-lg font-semibold">{editingTheme.feedback_count}</div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Average Sentiment</Label>
+                  <div className={`text-lg font-semibold ${editingTheme.avg_sentiment > 0 ? 'text-green-600' : editingTheme.avg_sentiment < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                    {editingTheme.avg_sentiment > 0 ? '+' : ''}{editingTheme.avg_sentiment.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setThemeEditOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={async () => {
+                  try {
+                    // Get the current user's session token
+                    const { data: { session } } = await supabase.auth.getSession()
+                    if (!session?.access_token) {
+                      throw new Error('No authentication token found')
+                    }
+
+                    // Make API call to update theme
+                    const response = await fetch(`/api/admin/themes/${editingTheme.id}`, {
+                      method: 'PATCH',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`
+                      },
+                      body: JSON.stringify({
+                        name: editingTheme.title,
+                        description: editingTheme.description,
+                        status: editingTheme.status
+                      })
+                    })
+
+                    if (!response.ok) {
+                      const errorData = await response.json()
+                      throw new Error(errorData.error || 'Failed to update theme')
+                    }
+
+                    const result = await response.json()
+                    
+                    toast({
+                      title: 'Theme Updated',
+                      description: `Theme "${editingTheme.title}" has been updated successfully.`,
+                    })
+                    setThemeEditOpen(false)
+                    loadThemes() // Refresh themes list
+                  } catch (error) {
+                    console.error('Error updating theme:', error)
+                    toast({
+                      title: 'Error',
+                      description: `Failed to update theme: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                      variant: 'destructive'
+                    })
+                  }
+                }}>
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
