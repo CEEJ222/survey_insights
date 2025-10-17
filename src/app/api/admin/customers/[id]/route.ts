@@ -45,17 +45,17 @@ export async function GET(
         id,
         primary_email,
         full_name,
+        company_name,
+        job_title,
+        industry,
+        company_size,
+        location,
+        subscription_tier,
+        account_status,
         created_at,
         updated_at,
         last_activity,
-        customer_health_scores (
-          health_score,
-          calculated_at
-        ),
-        customer_identifiers (
-          identifier_type,
-          identifier_value
-        )
+        tags
       `)
       .eq('id', customerId)
       .eq('company_id', (adminUser as any).company_id)
@@ -77,7 +77,6 @@ export async function GET(
         content,
         sentiment_score,
         priority_score,
-        ai_tags,
         created_at,
         updated_at,
         feedback_date
@@ -110,12 +109,28 @@ export async function GET(
       return acc
     }, {} as Record<string, number>) || {}
 
-    // Get all unique tags
-    const allTags = (feedbackItems as any[])?.flatMap(item => item.ai_tags || []) || []
-    const tagFrequency = allTags.reduce((acc, tag) => {
-      acc[tag] = (acc[tag] || 0) + 1
+    // Get tags from the new tag system for this customer
+    const { data: customerTags, error: tagsError } = await supabaseAdmin
+      .from('tag_usages')
+      .select(`
+        tags!inner (
+          id,
+          name,
+          category,
+          color
+        )
+      `)
+      .eq('source_type', 'customer')
+      .eq('source_id', customerId)
+
+    // Process tag frequency
+    const tagFrequency = (customerTags as any[])?.reduce((acc, usage) => {
+      const tagName = usage.tags?.name
+      if (tagName) {
+        acc[tagName] = (acc[tagName] || 0) + 1
+      }
       return acc
-    }, {} as Record<string, number>)
+    }, {} as Record<string, number>) || {}
 
     // Sort tags by frequency
     const topTags = Object.entries(tagFrequency)
@@ -183,7 +198,7 @@ export async function GET(
                   if (questions && Array.isArray(questions) && questions.length > 0) {
                     enrichedContent = questions.map((q: any) => {
                       const answer = responses[q.id] || 'No answer provided'
-                      return `Q: ${q.text}\nA: ${answer}`
+                      return `Q: ${q.question || q.text}\nA: ${answer}`
                     }).join('\n\n')
                   } else {
                     // If no questions available, format the responses in a more readable way
@@ -267,7 +282,6 @@ export async function GET(
           content: enrichedContent,
           sentimentScore: item.sentiment_score,
           priorityScore: item.priority_score,
-          aiTags: item.ai_tags || [],
           createdAt: item.created_at,
           updatedAt: item.updated_at,
           sourceData
@@ -282,11 +296,18 @@ export async function GET(
         id: (customer as any).id,
         email: (customer as any).primary_email,
         fullName: (customer as any).full_name,
+        companyName: (customer as any).company_name,
+        jobTitle: (customer as any).job_title,
+        industry: (customer as any).industry,
+        companySize: (customer as any).company_size,
+        location: (customer as any).location,
+        subscriptionTier: (customer as any).subscription_tier,
+        accountStatus: (customer as any).account_status,
         createdAt: (customer as any).created_at,
         updatedAt: (customer as any).updated_at,
         lastActivityAt: (customer as any).last_activity,
-        healthScore: (customer as any).customer_health_scores?.[0]?.health_score || 50,
-        identifiers: (customer as any).customer_identifiers || []
+        tags: (customer as any).tags || [],
+        healthScore: 50 // Default value since we removed the join
       },
       analytics: {
         totalFeedback,

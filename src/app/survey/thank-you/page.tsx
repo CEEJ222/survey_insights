@@ -3,7 +3,7 @@ import { CheckCircle2 } from 'lucide-react'
 
 export default function ThankYouPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4">
+    <div className="min-h-screen flex items-center justify-center survey-gradient-bg p-4">
       <Card className="max-w-md shadow-lg">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">

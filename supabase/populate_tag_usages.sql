@@ -9,7 +9,7 @@ WHERE s.company_id = '7dd73527-565d-4098-9475-210bd58af35e'
 ORDER BY sr.submitted_at DESC;
 
 -- Now create tag_usages records for each survey response
--- This maps the ai_tags array to individual tag usage records
+-- This maps the ai_tags array to individual tag usage records 
 
 INSERT INTO tag_usages (
   tag_id,

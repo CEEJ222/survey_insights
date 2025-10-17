@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase/client'
+import { createClient } from '@supabase/supabase-js'
+
+// Use server-side client with service role key to bypass RLS
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function GET(
   request: NextRequest,
@@ -7,6 +13,7 @@ export async function GET(
 ) {
   try {
     const { token } = params
+    console.log('🔍 Looking for survey link with token:', token)
 
     // Find survey link by token
     const { data: surveyLink, error: linkError } = (await supabase
@@ -15,7 +22,10 @@ export async function GET(
       .eq('token', token)
       .single()) as any
 
+    console.log('📋 Survey link result:', { surveyLink, linkError })
+
     if (linkError || !surveyLink) {
+      console.log('❌ Survey link not found:', linkError)
       return NextResponse.json(
         { error: 'Survey not found' },
         { status: 404 }
@@ -67,7 +77,7 @@ export async function GET(
       id: survey.id,
       title: survey.title,
       description: survey.description,
-      questions: survey.questions,
+      questions: survey.questions, // This should already be the nested structure from the database
       surveyLinkId: surveyLink.id,
       surveyLinkStatus: surveyLink.status,
     })

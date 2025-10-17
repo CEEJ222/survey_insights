@@ -55,7 +55,7 @@ export default function SurveyPreview({ title, description, questions, onClose }
                     .map((question, index) => (
                       <div key={question.id} className="space-y-2 sm:space-y-3">
                         <Label htmlFor={question.id} className="text-sm sm:text-base font-semibold break-words">
-                          {index + 1}. {question.text || 'Untitled Question'}
+                          {index + 1}. {question.question || 'Untitled Question'}
                         </Label>
                         <Textarea
                           id={question.id}

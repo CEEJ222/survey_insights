@@ -17,7 +17,9 @@ interface Survey {
   title: string
   description: string | null
   status: string
-  questions: any[]
+  questions: {
+    questions: any[]
+  }
 }
 
 interface SurveyLink {
@@ -236,12 +238,12 @@ export default function SurveyDetailPage() {
               <CardTitle>Survey Questions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {survey.questions.map((q: any, index: number) => (
+              {survey.questions?.questions?.map((q: any, index: number) => (
                 <div key={q.id} className="p-4 bg-gray-50 rounded-lg">
                   <p className="font-semibold text-sm text-gray-600 mb-2">
                     Question {index + 1}
                   </p>
-                  <p>{q.text}</p>
+                  <p>{q.question}</p>
                 </div>
               ))}
             </CardContent>
@@ -322,7 +324,7 @@ export default function SurveyDetailPage() {
         <SurveyPreview
           title={survey.title}
           description={survey.description || ''}
-          questions={survey.questions}
+          questions={survey.questions?.questions || []}
           onClose={() => setShowPreview(false)}
         />
       )}

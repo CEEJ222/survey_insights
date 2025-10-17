@@ -6,7 +6,7 @@
 
 import OpenAI from 'openai';
 import { Redis } from '@upstash/redis';
-import { supabase } from '@/lib/supabase/client';
+import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
 const openai = new OpenAI({
@@ -14,6 +14,12 @@ const openai = new OpenAI({
 });
 
 const redis = Redis.fromEnv();
+
+// Create Supabase client with service role key for server-side operations
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export interface TagUsageContext {
   sourceType: 'survey_response' | 'feedback_item' | 'review' | 'interview';
@@ -46,22 +52,43 @@ export class EnhancedTagNormalizer {
       return { tagIds: [], normalizedTags: [] };
     }
 
-    // 1. Normalize tags using AI
+    console.log(`🏷️ Processing raw tags: ${rawTags.join(', ')}`);
+
+    // 1. AI-powered normalization: detect duplicates and normalize
     const normalizedTags = await this.normalizeTags(rawTags);
+    console.log(`✨ Normalized tags: ${normalizedTags.join(', ')}`);
 
     // 2. Create or find tags in the database
     const tagIds: string[] = [];
     
     for (const tagName of normalizedTags) {
-      const tagId = await this.findOrCreateTag(tagName);
-      tagIds.push(tagId);
+      console.log(`🔍 Finding/creating tag: ${tagName}`);
+      try {
+        const tagId = await this.findOrCreateTag(tagName);
+        console.log(`✅ Tag created/found: ${tagName} -> ${tagId}`);
+        tagIds.push(tagId);
+      } catch (error) {
+        console.error(`❌ Error with tag ${tagName}:`, error);
+        throw error;
+      }
     }
 
     // 3. Create tag usage records
-    await this.createTagUsages(tagIds, context);
+    console.log(`📊 Creating tag usages for ${tagIds.length} tags`);
+    try {
+      await this.createTagUsages(tagIds, context);
+      console.log(`✅ Tag usages created successfully`);
+    } catch (error: any) {
+      if (error.code === '23505' && error.message.includes('tag_usages_tag_id_source_type_source_id_key')) {
+        console.warn(`⚠️ Some tag usages already exist, skipping duplicate creation`);
+      } else {
+        throw error;
+      }
+    }
 
     return { tagIds, normalizedTags };
   }
+
 
   /**
    * Normalize tags using AI (same logic as before)
@@ -70,10 +97,19 @@ export class EnhancedTagNormalizer {
     const inputString = rawTags.sort().join(', ');
     const cacheKey = this.getCacheKey('normalized_tags', inputString);
 
+    console.log(`🔍 Checking cache for normalization: ${inputString}`);
+
     const cached = await redis.get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached as string);
+    if (cached && typeof cached === 'string') {
+      try {
+        console.log(`♻️ Using cached normalization result: ${cached}`);
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn('Invalid cached normalization data, ignoring cache:', error);
+      }
     }
+
+    console.log(`🤖 Calling AI for tag normalization...`);
 
     const existingTags = await this.getCompanyTagHistory();
     const companyTagsContext = existingTags.length > 0 ? `\n\nCompany's existing tags: ${existingTags.join(', ')}` : '';
@@ -81,13 +117,16 @@ export class EnhancedTagNormalizer {
     const prompt = `You are an expert in categorizing and normalizing product feedback tags.
 Given a list of raw tags, your task is to:
 1. Identify and merge synonymous tags into a single, canonical tag.
-2. Ensure all tags are lowercase and use underscores for spaces (e.g., "feature_request").
+2. Ensure all tags are lowercase and use spaces for multi-word tags (e.g., "feature request").
 3. Prioritize using existing company tags if a synonym exists.${companyTagsContext}
-4. Keep the list concise, aiming for 3-5 normalized tags.
+4. Merge similar concepts intelligently - use your AI knowledge to identify semantic duplicates.
+5. Keep the list concise, aiming for 3-5 normalized tags.
 
 Raw tags: ${rawTags.join(', ')}
 
-Return a JSON object with a "normalized" array of tags. Example: {"normalized": ["performance", "dashboard", "pricing_issue"]}`;
+Return a JSON object with a "normalized" array of tags. Example: {"normalized": ["performance", "dashboard", "pricing-issue"]}`;
+
+    console.log(`📝 AI Prompt: ${prompt}`);
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -99,8 +138,12 @@ Return a JSON object with a "normalized" array of tags. Example: {"normalized": 
       response_format: { type: 'json_object' },
     });
 
-    const result = JSON.parse(response.choices[0].message.content || '{"normalized":[]}');
+    const aiResponse = response.choices[0].message.content || '{"normalized":[]}';
+    console.log(`🤖 AI Response: ${aiResponse}`);
+
+    const result = JSON.parse(aiResponse);
     const normalized = result.normalized || [];
+    console.log(`✨ Parsed normalized tags: ${normalized.join(', ')}`);
 
     // Cache result
     const ttl = parseInt(process.env.AI_CACHE_TTL || '86400', 10);
@@ -114,9 +157,10 @@ Return a JSON object with a "normalized" array of tags. Example: {"normalized": 
    */
   private async findOrCreateTag(tagName: string): Promise<string> {
     const normalizedName = tagName.toLowerCase().trim();
+    console.log(`🔍 Looking for tag with normalized name: "${normalizedName}"`);
 
     // Try to find existing tag
-    const { data: existingTag } = await supabase
+    const { data: existingTag, error: findError } = await supabase
       .from('tags')
       .select('id')
       .eq('company_id', this.companyId)
@@ -124,13 +168,20 @@ Return a JSON object with a "normalized" array of tags. Example: {"normalized": 
       .eq('is_active', true)
       .single();
 
+    if (findError && findError.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('Error finding existing tag:', findError);
+      throw findError;
+    }
+
     if (existingTag) {
+      console.log(`♻️ Found existing tag: ${tagName} -> ${existingTag.id}`);
       return existingTag.id;
     }
 
     // Create new tag
     const category = this.categorizeTag(tagName);
     const color = this.getTagColor(category);
+    console.log(`🆕 Creating new tag: ${tagName} (${category}, ${color})`);
 
     const { data: newTag, error } = await supabase
       .from('tags')
@@ -148,10 +199,11 @@ Return a JSON object with a "normalized" array of tags. Example: {"normalized": 
       .single();
 
     if (error) {
-      console.error('Error creating tag:', error);
+      console.error('❌ Error creating tag:', error);
       throw error;
     }
 
+    console.log(`✅ Created new tag: ${tagName} -> ${newTag.id}`);
     return newTag.id;
   }
 

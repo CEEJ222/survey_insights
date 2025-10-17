@@ -14,7 +14,9 @@ interface SurveyData {
   id: string
   title: string
   description: string | null
-  questions: SurveyQuestion[]
+  questions: {
+    questions: SurveyQuestion[]
+  }
   surveyLinkId: string
   surveyLinkStatus: string
 }
@@ -47,7 +49,7 @@ export default function SurveyPage() {
       
       // Initialize responses object
       const initialResponses: Record<string, string> = {}
-      data.questions.forEach((q: SurveyQuestion) => {
+      data.questions?.questions?.forEach((q: SurveyQuestion) => {
         initialResponses[q.id] = ''
       })
       setResponses(initialResponses)
@@ -62,7 +64,7 @@ export default function SurveyPage() {
     e.preventDefault()
     
     // Validate all questions are answered
-    const unanswered = survey?.questions.filter(q => !responses[q.id]?.trim())
+    const unanswered = survey?.questions?.questions?.filter(q => !responses[q.id]?.trim())
     if (unanswered && unanswered.length > 0) {
       toast({
         title: 'Please answer all questions',
@@ -161,12 +163,12 @@ export default function SurveyPage() {
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
-              {survey?.questions
-                .sort((a, b) => a.order - b.order)
+              {survey?.questions?.questions
+                ?.sort((a, b) => a.order - b.order)
                 .map((question, index) => (
                   <div key={question.id} className="space-y-2 sm:space-y-3">
                     <Label htmlFor={question.id} className="text-sm sm:text-base font-semibold break-words">
-                      {index + 1}. {question.text}
+                      {index + 1}. {question.question}
                     </Label>
                     <Textarea
                       id={question.id}
@@ -203,7 +205,7 @@ export default function SurveyPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-white mt-6">
           Your responses are confidential and will be used to improve our services.
         </p>
       </div>

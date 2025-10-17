@@ -60,7 +60,7 @@
 
 /* Survey gradient background */
 .survey-gradient-bg {
-  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 25%, #ff6b9d 50%, #c44569 75%, #f8b500 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #059669 20%, #1e3a8a 40%, #0f766e 60%, #1e40af 80%, #7c2d12 100%);
   min-height: 100vh;
 }
 

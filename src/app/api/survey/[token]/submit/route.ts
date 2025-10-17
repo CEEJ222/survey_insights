@@ -178,22 +178,25 @@ async function analyzeResponseWithAI(
     // Create AI orchestrator
     const ai = createAIOrchestrator(companyId)
 
-    // Run complete analysis
-    const analysis = await ai.analyzeFeedback(text)
+    // Process survey response with new tag system
+    const analysis = await ai.processSurveyResponse(
+      text,
+      responseId,
+      undefined // customerId will be looked up in the processSurveyResponse method
+    )
 
-    // Update survey response with AI results
+    // Update survey response with AI results (no more ai_tags column)
     await supabase
       .from('survey_responses')
       .update({
         sentiment_score: analysis.sentiment.score,
-        ai_tags: analysis.tags,
         priority_score: analysis.priorityScore,
       })
       .eq('id', responseId)
 
     console.log(`✅ AI analysis complete for response ${responseId}`)
     console.log(`   Sentiment: ${analysis.sentiment.score} (${analysis.sentiment.label})`)
-    console.log(`   Tags: ${analysis.tags.join(', ')}`)
+    console.log(`   Tags: ${analysis.normalizedTags.join(', ')}`)
     console.log(`   Priority: ${analysis.priorityScore}/100`)
   } catch (error) {
     console.error('Error in AI analysis:', error)

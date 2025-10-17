@@ -59,6 +59,9 @@ export default function TagsThemesSettings() {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [mergeMode, setMergeMode] = useState(false)
   const [mergeTarget, setMergeTarget] = useState('')
+  const [discoveryLoading, setDiscoveryLoading] = useState(false)
+  const [duplicateDetectionLoading, setDuplicateDetectionLoading] = useState(false)
+  const [duplicateGroups, setDuplicateGroups] = useState<any[]>([])
   const { toast } = useToast()
 
   useEffect(() => {
@@ -168,27 +171,314 @@ export default function TagsThemesSettings() {
   }
 
   const loadThemes = async () => {
-    // Mock theme data for now - will be replaced with actual theme discovery
-    setThemes([
-      {
-        id: '1',
-        title: 'User Experience Issues',
-        description: 'Feedback related to interface complexity and learning curve',
-        supporting_tags: ['complicated', 'interface', 'learning', 'training'],
-        feedback_count: 12,
-        avg_sentiment: -0.3,
-        confidence: 0.85
-      },
-      {
-        id: '2',
-        title: 'Process Efficiency',
-        description: 'Positive feedback about streamlined workflows and automation',
-        supporting_tags: ['streamlined', 'automated', 'organizing', 'tracking'],
-        feedback_count: 8,
-        avg_sentiment: 0.75,
-        confidence: 0.92
+    try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('No authenticated user')
       }
-    ])
+
+      // Get the admin user record to get company_id
+      const { data: adminUser, error: adminError } = await supabase
+        .from('admin_users')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (adminError || !adminUser) {
+        throw new Error('Admin user not found')
+      }
+
+      // Fetch themes from database
+      const { data, error } = await supabase
+        .from('themes')
+        .select(`
+          id,
+          name,
+          description,
+          related_tag_ids,
+          customer_count,
+          mention_count,
+          avg_sentiment,
+          priority_score,
+          trend,
+          status,
+          created_at
+        `)
+        .eq('company_id', adminUser.company_id)
+        .order('priority_score', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching themes:', error)
+        throw error
+      }
+
+      // Get tag names for related_tag_ids
+      const allTagIds = (data || [])
+        .flatMap((theme: any) => theme.related_tag_ids || [])
+        .filter((id: string, index: number, arr: string[]) => arr.indexOf(id) === index) // Remove duplicates
+
+      let tagNamesMap: Record<string, string> = {}
+      if (allTagIds.length > 0) {
+        const { data: tagData } = await supabase
+          .from('tags')
+          .select('id, name')
+          .in('id', allTagIds)
+        
+        tagNamesMap = (tagData || []).reduce((acc: Record<string, string>, tag: any) => {
+          acc[tag.id] = tag.name
+          return acc
+        }, {})
+      }
+
+      // Transform to match the expected interface
+      const transformedThemes = (data || []).map((theme: any) => ({
+        id: theme.id,
+        title: theme.name,
+        description: theme.description,
+        supporting_tags: (theme.related_tag_ids || []).map((tagId: string) => tagNamesMap[tagId] || 'Unknown Tag'),
+        feedback_count: theme.mention_count || 0,
+        avg_sentiment: theme.avg_sentiment || 0,
+        confidence: theme.priority_score ? theme.priority_score / 100 : 0.5,
+        trend: theme.trend,
+        customer_count: theme.customer_count,
+        priority_score: theme.priority_score,
+        status: theme.status,
+        created_at: theme.created_at,
+      }))
+
+      setThemes(transformedThemes)
+    } catch (error) {
+      console.error('Error loading themes:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load themes',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const processExistingResponses = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      // Get all survey responses for this company that don't have tags yet
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('No authenticated user')
+      }
+
+      const { data: adminUser, error: adminError } = await supabase
+        .from('admin_users')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (adminError || !adminUser) {
+        throw new Error('Admin user not found')
+      }
+
+      // Get survey responses that haven't been processed yet
+      const { data: responses, error: responsesError } = await supabase
+        .from('survey_responses')
+        .select(`
+          id,
+          responses,
+          customer_id,
+          surveys!inner(
+            company_id
+          )
+        `)
+        .eq('surveys.company_id', adminUser.company_id)
+        .not('responses', 'is', null)
+        .limit(10) // Process 10 at a time for testing
+
+      if (responsesError) {
+        throw new Error('Failed to fetch survey responses')
+      }
+
+      if (!responses || responses.length === 0) {
+        toast({
+          title: 'No Responses',
+          description: 'No unprocessed survey responses found',
+        })
+        return
+      }
+
+      let processedCount = 0
+      let errorCount = 0
+
+      // Process each response
+      for (const response of responses) {
+        try {
+          const responseText = extractTextFromResponses(response.responses)
+          if (!responseText.trim()) continue
+
+          const apiResponse = await fetch('/api/admin/process-survey-response', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              surveyResponseId: response.id,
+            }),
+          })
+
+          if (apiResponse.ok) {
+            processedCount++
+          } else {
+            errorCount++
+          }
+        } catch (error) {
+          console.error('Error processing response:', error)
+          errorCount++
+        }
+      }
+
+      toast({
+        title: 'Processing Complete',
+        description: `Processed ${processedCount} responses${errorCount > 0 ? `, ${errorCount} errors` : ''}`,
+      })
+
+      // Reload tags to show the new ones
+      await loadTags()
+    } catch (error) {
+      console.error('Error processing existing responses:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to process responses',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const runThemeDiscovery = async () => {
+    setDiscoveryLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch('/api/admin/theme-discovery', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to run theme discovery')
+      }
+
+      toast({
+        title: 'Theme Discovery Complete',
+        description: `Discovered ${data.themes_discovered} new themes`,
+      })
+
+      // Reload themes to show the new ones
+      await loadThemes()
+    } catch (error) {
+      console.error('Error running theme discovery:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to run theme discovery',
+        variant: 'destructive'
+      })
+    } finally {
+      setDiscoveryLoading(false)
+    }
+  }
+
+  const detectDuplicateTags = async () => {
+    setDuplicateDetectionLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch('/api/admin/detect-duplicate-tags', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'detect' }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to detect duplicate tags')
+      }
+
+      setDuplicateGroups(data.duplicateGroups || [])
+
+      toast({
+        title: 'Duplicate Detection Complete',
+        description: `Found ${data.duplicateGroups?.length || 0} duplicate groups`,
+      })
+    } catch (error) {
+      console.error('Error detecting duplicate tags:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to detect duplicate tags',
+        variant: 'destructive'
+      })
+    } finally {
+      setDuplicateDetectionLoading(false)
+    }
+  }
+
+  const mergeDuplicateTags = async () => {
+    setDuplicateDetectionLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch('/api/admin/detect-duplicate-tags', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'merge' }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to merge duplicate tags')
+      }
+
+      toast({
+        title: 'Merge Complete',
+        description: `Merged ${data.result?.merged || 0} duplicate tags`,
+      })
+
+      // Reload tags and clear duplicate groups
+      await loadTags()
+      setDuplicateGroups([])
+    } catch (error) {
+      console.error('Error merging duplicate tags:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to merge duplicate tags',
+        variant: 'destructive'
+      })
+    } finally {
+      setDuplicateDetectionLoading(false)
+    }
   }
 
   const filteredTags = tags.filter(tag => 
@@ -269,6 +559,21 @@ export default function TagsThemesSettings() {
     }
   }
 
+  // Helper function to extract text from survey responses JSON
+  const extractTextFromResponses = (responses: any): string => {
+    if (!responses || typeof responses !== 'object') return ''
+    
+    const textParts: string[] = []
+    
+    for (const [key, value] of Object.entries(responses)) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        textParts.push(value.trim())
+      }
+    }
+    
+    return textParts.join(' ')
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -314,6 +619,31 @@ export default function TagsThemesSettings() {
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={processExistingResponses}
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Process Existing Responses
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={detectDuplicateTags}
+                    disabled={duplicateDetectionLoading}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    {duplicateDetectionLoading ? 'Detecting...' : 'Detect Duplicates'}
+                  </Button>
+                  {duplicateGroups.length > 0 && (
+                    <Button
+                      variant="default"
+                      onClick={mergeDuplicateTags}
+                      disabled={duplicateDetectionLoading}
+                    >
+                      <Merge className="h-4 w-4 mr-2" />
+                      {duplicateDetectionLoading ? 'Merging...' : `Merge ${duplicateGroups.length} Groups`}
+                    </Button>
+                  )}
                   <Button
                     variant={mergeMode ? "default" : "outline"}
                     onClick={() => {
@@ -434,6 +764,44 @@ export default function TagsThemesSettings() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Duplicate Groups Display */}
+          {duplicateGroups.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Duplicate Groups Found</CardTitle>
+                <CardDescription>
+                  AI detected {duplicateGroups.length} groups of duplicate tags that can be merged
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {duplicateGroups.map((group, index) => (
+                    <div key={index} className="border rounded-lg p-4 bg-blue-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-blue-900">
+                          Group {index + 1}: {group.canonicalTag}
+                        </h4>
+                        <Badge variant="secondary">
+                          {Math.round(group.confidence * 100)}% confidence
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-blue-700 mb-3">
+                        {group.reasoning}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default">{group.canonicalTag}</Badge>
+                        <span className="text-gray-500">←</span>
+                        {group.duplicateTags.map((tag: string) => (
+                          <Badge key={tag} variant="outline">{tag}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Themes Tab */}
@@ -447,9 +815,13 @@ export default function TagsThemesSettings() {
                     AI-discovered themes from your feedback patterns
                   </CardDescription>
                 </div>
-                <Button variant="outline">
+                <Button 
+                  variant="outline"
+                  onClick={runThemeDiscovery}
+                  disabled={discoveryLoading}
+                >
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Run Theme Discovery
+                  {discoveryLoading ? 'Discovering...' : 'Run Theme Discovery'}
                 </Button>
               </div>
             </CardHeader>
@@ -462,8 +834,18 @@ export default function TagsThemesSettings() {
                         <div className="flex items-center gap-2 mb-2">
                           <h3 className="font-semibold">{theme.title}</h3>
                           <Badge variant={theme.confidence > 0.8 ? "default" : "secondary"}>
-                            {Math.round(theme.confidence * 100)}% confidence
+                            {Math.round(theme.confidence * 100)}% priority
                           </Badge>
+                          {theme.trend && (
+                            <Badge variant="outline">
+                              {theme.trend === 'increasing' ? '📈' : theme.trend === 'decreasing' ? '📉' : '📊'} {theme.trend}
+                            </Badge>
+                          )}
+                          {theme.status && (
+                            <Badge variant="secondary">
+                              {theme.status}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-gray-600 mb-3">{theme.description}</p>
                         <div className="flex items-center gap-4 text-sm">

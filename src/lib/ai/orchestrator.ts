@@ -69,9 +69,13 @@ export class AIOrchestrator {
       this.generateTags(text),
     ]);
 
-    // NEW: Normalize tags to prevent duplicates
-    const normalizer = createTagNormalizer(this.companyId);
-    const tags = await normalizer.normalizeTags(rawTags);
+    // NEW: Process tags with context and get tag IDs
+    const tagResult = await this.processTagsWithContext(rawTags, {
+      sourceType: 'feedback_item',
+      sourceId: crypto.randomUUID(), // Generate temp ID for this analysis
+      sentimentScore: sentiment.score,
+      usedAt: new Date(),
+    });
 
     // Calculate priority score based on sentiment and content
     const priorityScore = this.calculatePriorityScore({
@@ -82,7 +86,8 @@ export class AIOrchestrator {
     return {
       summary,
       sentiment,
-      tags,
+      tags: tagResult.normalizedTags,
+      tagIds: tagResult.tagIds,
       priorityScore,
     };
   }
@@ -105,6 +110,56 @@ export class AIOrchestrator {
     return await normalizer.processTags(rawTags, context);
   }
 
+  /**
+   * Process a survey response with automatic AI tagging
+   * This is the main method called when a survey response is submitted
+   */
+  async processSurveyResponse(
+    responseText: string,
+    surveyResponseId: string,
+    customerId?: string
+  ): Promise<{
+    summary: string;
+    sentiment: SentimentResult;
+    tagIds: string[];
+    normalizedTags: string[];
+    priorityScore: number;
+  }> {
+    console.log(`🤖 Processing survey response ${surveyResponseId} with AI`);
+
+    // Run all analyses in parallel for speed
+    const [summary, sentiment, rawTags] = await Promise.all([
+      this.summarize(responseText),
+      this.analyzeSentiment(responseText),
+      this.generateTags(responseText),
+    ]);
+
+    // Process tags with context - this creates tags in the tags table
+    const tagResult = await this.processTagsWithContext(rawTags, {
+      sourceType: 'survey_response',
+      sourceId: surveyResponseId,
+      customerId,
+      sentimentScore: sentiment.score,
+      usedAt: new Date(),
+    });
+
+    // Calculate priority score
+    const priorityScore = this.calculatePriorityScore({
+      text: responseText,
+      sentiment: sentiment.score,
+    });
+
+    console.log(`✅ Processed survey response: ${tagResult.normalizedTags.length} tags created`);
+
+    return {
+      summary,
+      sentiment,
+      tagIds: tagResult.tagIds,
+      normalizedTags: tagResult.normalizedTags,
+      priorityScore,
+    };
+  }
+
   // ==========================================================================
   // TEXT GENERATION
   // ==========================================================================
@@ -117,9 +172,9 @@ export class AIOrchestrator {
 
     // Check cache first
     const cached = await redis.get(cacheKey);
-    if (cached) {
+    if (cached && typeof cached === 'string') {
       await this.trackCacheHit('summarization');
-      return cached as string;
+      return cached;
     }
 
     // Generate with OpenAI
@@ -164,9 +219,13 @@ export class AIOrchestrator {
 
     // Check cache
     const cached = await redis.get(cacheKey);
-    if (cached) {
-      await this.trackCacheHit('sentiment');
-      return JSON.parse(cached as string);
+    if (cached && typeof cached === 'string') {
+      try {
+        await this.trackCacheHit('sentiment');
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn('Invalid cached sentiment data, ignoring cache:', error);
+      }
     }
 
     // Generate with OpenAI
@@ -221,9 +280,13 @@ Examples:
 
     // Check cache
     const cached = await redis.get(cacheKey);
-    if (cached) {
-      await this.trackCacheHit('tagging');
-      return JSON.parse(cached as string);
+    if (cached && typeof cached === 'string') {
+      try {
+        await this.trackCacheHit('tagging');
+        return JSON.parse(cached);
+      } catch (error) {
+        console.warn('Invalid cached tags data, ignoring cache:', error);
+      }
     }
 
     // Generate with OpenAI
@@ -235,12 +298,15 @@ Examples:
           content: `Extract 3-5 relevant tags from the feedback. Tags should be:
 - Lowercase
 - Single words or short phrases (max 2 words)
+- ALWAYS use hyphens for multi-word tags (e.g., "user-friendly", "performance-issue")
+- NEVER use underscores - use spaces or hyphens only
 - Categories like: feature names, issue types, emotions, topics
 
 Examples:
 - "The dashboard is slow" → ["dashboard", "performance", "slow"]
-- "Love the new pricing page!" → ["pricing", "positive", "ui"]
+- "Love the new pricing page!" → ["pricing", "positive", "user-friendly"]
 - "Can't find the export button" → ["export", "ux", "confusion"]
+- "User friendly interface" → ["user-friendly", "interface", "positive"]
 
 Return JSON: {"tags": ["tag1", "tag2", "tag3"]}`,
         },

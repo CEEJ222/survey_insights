@@ -925,9 +925,9 @@ export interface Database {
 
 export interface SurveyQuestion {
   id: string
-  text: string
-  type: 'open_ended' | 'multiple_choice' | 'rating' | 'matrix'
-  order: number
+  question: string
+  type: 'open_ended' | 'multiple_choice' | 'rating' | 'matrix' | 'text' | 'rating'
+  order?: number
   options?: string[] // For multiple choice
   required?: boolean
 }
