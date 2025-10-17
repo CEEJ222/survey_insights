@@ -111,7 +111,7 @@ export default function SurveyDetailPage() {
           )
         `)
         .eq('source_type', 'survey_response')
-        .in('source_id', responsesData?.map(r => r.id) || [])
+        .in('source_id', responsesData?.map(r => (r as any).id) || [])
 
       // Process tags and count usage
       const tagMap = new Map<string, SurveyTag>()

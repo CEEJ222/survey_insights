@@ -23,7 +23,10 @@ import {
   Settings,
   Tag,
   ChevronRight,
-  MessageSquare
+  MessageSquare,
+  Compass,
+  Map,
+  TrendingUp
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 
@@ -118,15 +121,33 @@ export default function DashboardLayout({
       ]
     },
     {
+      label: 'Strategy',
+      href: '/admin/dashboard/strategy',
+      icon: Compass,
+      subItems: [
+        { label: 'Vision & Strategy', href: '/admin/dashboard/strategy' },
+        { label: 'OKRs', href: '/admin/dashboard/strategy/okrs' },
+        { label: 'History', href: '/admin/dashboard/strategy/history' },
+      ]
+    },
+    {
+      label: 'Themes',
+      href: '/admin/dashboard/themes',
+      icon: TrendingUp,
+      subItems: [
+        { label: 'All Themes', href: '/admin/dashboard/themes' },
+        { label: 'Review Queue', href: '/admin/dashboard/themes/review' },
+        { label: 'Strategic Priority', href: '/admin/dashboard/themes/priority' },
+      ]
+    },
+    {
       label: 'Roadmap',
       href: '/admin/dashboard/roadmap',
-      icon: Target,
-      badge: 'Soon',
+      icon: Map,
       subItems: [
-        { label: 'All Items', href: '/admin/dashboard/roadmap', badge: 'Soon' },
-        { label: 'Impact vs Effort', href: '/admin/dashboard/roadmap/matrix', badge: 'Soon' },
-        { label: 'Themes', href: '/admin/dashboard/roadmap/themes', badge: 'Soon' },
-        { label: 'Timeline', href: '/admin/dashboard/roadmap/timeline', badge: 'Soon' },
+        { label: 'Initiatives', href: '/admin/dashboard/roadmap' },
+        { label: 'Timeline', href: '/admin/dashboard/roadmap/timeline' },
+        { label: 'Impact Tracking', href: '/admin/dashboard/roadmap/impact' },
       ]
     },
     {
@@ -159,10 +180,9 @@ export default function DashboardLayout({
       badge: 'Soon',
       subItems: [
         { label: 'Overview', href: '/admin/dashboard/insights', badge: 'Soon' },
-        { label: 'Cross-Channel', href: '/admin/dashboard/insights/cross-channel', badge: 'Soon' },
-        { label: 'Tag Cloud', href: '/admin/dashboard/insights/tags', badge: 'Soon' },
-        { label: 'Themes', href: '/admin/dashboard/insights/themes', badge: 'Soon' },
+        { label: 'Tag Analytics', href: '/admin/dashboard/insights/tags', badge: 'Soon' },
         { label: 'Sentiment Trends', href: '/admin/dashboard/insights/sentiment', badge: 'Soon' },
+        { label: 'Cross-Channel', href: '/admin/dashboard/insights/cross-channel', badge: 'Soon' },
       ]
     },
     {

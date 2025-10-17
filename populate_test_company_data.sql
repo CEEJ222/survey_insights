@@ -263,3 +263,4 @@ SELECT 'POPULATION SUMMARY' as info,
   (SELECT COUNT(*) FROM tags WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as tags,
   (SELECT COUNT(*) FROM feedback_items WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as feedback_items,
   (SELECT COUNT(*) FROM customer_health_scores WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as health_scores;
+

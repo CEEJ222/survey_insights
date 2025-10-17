@@ -50,3 +50,4 @@ SELECT
   (SELECT COUNT(*) FROM customers WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as customer_count,
   (SELECT COUNT(*) FROM tags WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as tag_count,
   (SELECT COUNT(*) FROM feedback_items WHERE company_id = '550e8400-e29b-41d4-a716-446655440002') as feedback_count;
+

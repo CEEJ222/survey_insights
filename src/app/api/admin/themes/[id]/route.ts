@@ -1,6 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
+// GET - Get single theme details
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const themeId = params.id
+
+    const { data: theme, error } = await supabaseAdmin
+      .from('themes')
+      .select(`
+        id,
+        title,
+        description,
+        feedback_count,
+        sentiment_score,
+        priority_score,
+        strategic_alignment_score,
+        strategic_reasoning,
+        strategic_conflicts,
+        strategic_opportunities,
+        final_priority_score,
+        recommendation,
+        pm_notes,
+        declined_reason,
+        created_at,
+        updated_at
+      `)
+      .eq('id', themeId)
+      .single()
+
+    if (error) {
+      console.error('Error fetching theme:', error)
+      return NextResponse.json({ error: 'Failed to fetch theme' }, { status: 500 })
+    }
+
+    if (!theme) {
+      return NextResponse.json({ error: 'Theme not found' }, { status: 404 })
+    }
+
+    // Transform data for frontend
+    const transformedTheme = {
+      id: theme.id,
+      name: theme.title,
+      description: theme.description,
+      customerCount: theme.feedback_count || 0,
+      mentionCount: theme.feedback_count || 0,
+      sentiment: theme.sentiment_score || 0,
+      priority: theme.priority_score || 0,
+      finalPriority: theme.final_priority_score || theme.priority_score || 0,
+      strategicAlignment: theme.strategic_alignment_score || 50,
+      strategicReasoning: theme.strategic_reasoning || '',
+      strategicConflicts: theme.strategic_conflicts || [],
+      strategicOpportunities: theme.strategic_opportunities || [],
+      recommendation: theme.recommendation || 'needs_review',
+      pmNotes: theme.pm_notes,
+      declinedReason: theme.declined_reason,
+      status: theme.recommendation === 'needs_review' ? 'needs_review' : 'approved',
+      createdAt: theme.created_at,
+      updatedAt: theme.updated_at
+    }
+
+    return NextResponse.json({ theme: transformedTheme })
+  } catch (error) {
+    console.error('Error in theme GET:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
 // PATCH - Update theme (archive, edit, etc.)
 export async function PATCH(
   request: NextRequest,

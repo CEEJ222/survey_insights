@@ -80,3 +80,4 @@ WHERE t1.company_id = '550e8400-e29b-41d4-a716-446655440002'
     OR (REPLACE(t2.normalized_name, 'ies', 'y') = t1.normalized_name)
   )
 ORDER BY t1.usage_count + t2.usage_count DESC;
+

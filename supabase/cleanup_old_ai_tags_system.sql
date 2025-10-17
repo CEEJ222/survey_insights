@@ -20,3 +20,4 @@ WHERE table_name IN ('survey_responses', 'feedback_items')
   AND column_name = 'ai_tags';
 
 -- Should return 0 rows if successful
+

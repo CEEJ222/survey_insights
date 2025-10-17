@@ -10,3 +10,4 @@ ALTER TABLE feedback_items DROP COLUMN IF EXISTS ai_tags;
 -- Add comment to document the change
 COMMENT ON TABLE survey_responses IS 'Survey responses now use the tags table system instead of ai_tags array column';
 COMMENT ON TABLE feedback_items IS 'Feedback items now use the tags table system instead of ai_tags array column';
+

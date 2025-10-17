@@ -83,3 +83,4 @@ FROM information_schema.columns
 WHERE table_name IN ('companies', 'customers', 'surveys', 'survey_responses', 'tags', 'tag_usages')
   AND column_name IN ('id', 'company_id', 'customer_id', 'survey_id', 'ai_tags')
 ORDER BY table_name, ordinal_position;
+

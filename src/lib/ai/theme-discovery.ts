@@ -30,6 +30,13 @@ export interface DiscoveredTheme {
   priority_score: number;
   evidence: string[];
   recommended_action: string;
+  // Strategic scoring fields
+  strategic_alignment_score?: number;
+  strategic_reasoning?: string;
+  strategic_conflicts?: string[];
+  strategic_opportunities?: string[];
+  final_priority_score?: number;
+  recommendation?: string;
 }
 
 export interface FeedbackCluster {
@@ -46,6 +53,27 @@ export interface FeedbackCluster {
   }>;
 }
 
+export interface StrategicAlignmentResult {
+  alignment_score: number;        // 0-100
+  reasoning: string;             // Why this score?
+  conflicts: string[];           // Which parts of strategy conflict?
+  opportunities: string[];       // Which parts of strategy align?
+  recommendation: string;        // 'high_priority' | 'medium_priority' | 'low_priority' | 'explore_lightweight' | 'off_strategy'
+}
+
+export interface ProductStrategy {
+  vision_statement?: string;
+  target_customer_description?: string;
+  problems_we_solve: string[];
+  problems_we_dont_solve: string[];
+  how_we_win?: string;
+  strategic_keywords: Array<{
+    keyword: string;
+    weight: number;
+    reasoning: string;
+  }>;
+}
+
 export class ThemeDiscoveryEngine {
   private companyId: string;
   private enableCostTracking: boolean;
@@ -56,11 +84,148 @@ export class ThemeDiscoveryEngine {
   }
 
   /**
+   * Calculate strategic alignment for a theme
+   */
+  async calculateStrategicAlignment(
+    theme: DiscoveredTheme,
+    strategy: ProductStrategy
+  ): Promise<StrategicAlignmentResult> {
+    const cacheKey = this.getCacheKey('strategic_alignment', `${theme.name}-${JSON.stringify(strategy)}`);
+    
+    // Check cache first
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log('📋 Using cached strategic alignment');
+      return JSON.parse(cached as string);
+    }
+
+    const prompt = `
+You are a product strategist. Analyze how well this customer theme aligns with our product strategy.
+
+CURRENT STRATEGY:
+Vision: ${strategy.vision_statement || 'Not defined'}
+Target Customer: ${strategy.target_customer_description || 'Not defined'}
+Problems We Solve: ${strategy.problems_we_solve.join(', ') || 'Not defined'}
+Problems We DON'T Solve: ${strategy.problems_we_dont_solve.join(', ') || 'Not defined'}
+How We Win: ${strategy.how_we_win || 'Not defined'}
+
+STRATEGIC KEYWORDS:
+${strategy.strategic_keywords.map(k => `${k.keyword}: ${k.weight > 0 ? '+' : ''}${k.weight} (${k.reasoning})`).join('\n')}
+
+CUSTOMER THEME:
+Name: ${theme.name}
+Description: ${theme.description}
+Tags: ${theme.related_tag_ids.join(', ')}
+Customer Evidence: ${theme.customer_count} customers, ${theme.mention_count} mentions
+Sentiment: ${theme.avg_sentiment}
+
+ANALYSIS REQUIRED:
+1. Target Customer Alignment (0-1): Does this theme address our target customer?
+2. Problems We Solve Match (0-1): Does this address problems we've committed to solving?
+3. Problems We Don't Solve Conflict (-1 to 0): Does this conflict with our scope boundaries?
+4. Differentiation Support (0-1): Does this support our competitive advantage?
+5. Keyword Analysis: Check against strategic keywords and their weights
+
+Provide:
+- Overall alignment score (0-100)
+- Specific conflicts (if any)
+- Strategic opportunities (how this could support strategy)
+- Recommendation (high_priority | medium_priority | low_priority | explore_lightweight | off_strategy)
+- Reasoning (2-3 sentences explaining the score)
+`;
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are an expert product strategist who analyzes theme alignment with company strategy.' 
+          },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      
+      const alignment: StrategicAlignmentResult = {
+        alignment_score: result.alignment_score || 50,
+        reasoning: result.reasoning || 'No reasoning provided',
+        conflicts: result.conflicts || [],
+        opportunities: result.opportunities || [],
+        recommendation: result.recommendation || 'needs_review'
+      };
+
+      // Cache the result for 7 days
+      await redis.set(cacheKey, JSON.stringify(alignment), { ex: 604800 });
+      
+      // Track cost if enabled
+      if (this.enableCostTracking) {
+        await this.trackCost('strategic_alignment', response.usage);
+      }
+
+      return alignment;
+    } catch (error) {
+      console.error('Error calculating strategic alignment:', error);
+      // Return default alignment if AI fails
+      return {
+        alignment_score: 50,
+        reasoning: 'Unable to analyze strategic alignment',
+        conflicts: [],
+        opportunities: [],
+        recommendation: 'needs_review'
+      };
+    }
+  }
+
+  /**
+   * Get current strategy for company
+   */
+  async getCurrentStrategy(): Promise<ProductStrategy | null> {
+    try {
+      const { data: strategyData } = await supabaseAdmin
+        .from('product_strategy')
+        .select('*')
+        .eq('company_id', this.companyId)
+        .eq('is_active', true)
+        .order('version', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!strategyData) {
+        console.log('⚠️ No active strategy found for company');
+        return null;
+      }
+
+      const strategy = strategyData as any;
+      return {
+        vision_statement: strategy.vision_statement,
+        target_customer_description: strategy.target_customer_description,
+        problems_we_solve: strategy.problems_we_solve || [],
+        problems_we_dont_solve: strategy.problems_we_dont_solve || [],
+        how_we_win: strategy.how_we_win,
+        strategic_keywords: strategy.strategic_keywords || []
+      };
+    } catch (error) {
+      console.error('Error fetching strategy:', error);
+      return null;
+    }
+  }
+
+  /**
    * Discover themes across all feedback
    * Runs daily as a batch job
    */
   async discoverThemes(): Promise<DiscoveredTheme[]> {
     console.log(`🔍 Starting theme discovery for company: ${this.companyId}`);
+    
+    // Get current strategy first
+    const strategy = await this.getCurrentStrategy();
+    if (!strategy) {
+      console.log('⚠️ No active strategy found. Running theme discovery without strategic scoring.');
+    }
     
     // Get all feedback from last 90 days
     const feedback = await this.getRecentFeedback();
@@ -92,13 +257,42 @@ export class ThemeDiscoveryEngine {
       console.log(`🤖 Generating theme for cluster with ${cluster.feedback.length} items`);
       try {
         const theme = await this.generateTheme(cluster);
+        
+        // Calculate strategic alignment if strategy exists
+        if (strategy) {
+          console.log(`🎯 Calculating strategic alignment for theme: ${theme.name}`);
+          const alignment = await this.calculateStrategicAlignment(theme, strategy);
+          
+          // Update theme with strategic scoring
+          theme.strategic_alignment_score = alignment.alignment_score;
+          theme.strategic_reasoning = alignment.reasoning;
+          theme.strategic_conflicts = alignment.conflicts;
+          theme.strategic_opportunities = alignment.opportunities;
+          theme.recommendation = alignment.recommendation;
+          
+          // Calculate final priority: Customer Signal × Strategic Alignment
+          theme.final_priority_score = Math.round(
+            theme.priority_score * (alignment.alignment_score / 100)
+          );
+        } else {
+          // No strategy - use customer signal as final priority
+          theme.final_priority_score = theme.priority_score;
+          theme.strategic_alignment_score = 50; // Default neutral score
+          theme.recommendation = 'needs_review';
+        }
+        
         themes.push(theme);
       } catch (error) {
         console.error(`❌ Error generating theme for cluster:`, error);
       }
     }
     
-    console.log(`✅ Generated ${themes.length} themes`);
+    // Sort by final priority if we have strategic scoring
+    if (strategy) {
+      themes.sort((a, b) => (b.final_priority_score || 0) - (a.final_priority_score || 0));
+    }
+    
+    console.log(`✅ Generated ${themes.length} themes with strategic scoring`);
     return themes;
   }
 
@@ -713,6 +907,13 @@ Return JSON with this exact structure:
               trend: theme.trend,
               week_over_week_change: theme.week_over_week_change,
               priority_score: theme.priority_score,
+              // Strategic scoring fields
+              strategic_alignment_score: theme.strategic_alignment_score,
+              strategic_reasoning: theme.strategic_reasoning,
+              strategic_conflicts: theme.strategic_conflicts,
+              strategic_opportunities: theme.strategic_opportunities,
+              final_priority_score: theme.final_priority_score,
+              recommendation: theme.recommendation,
               updated_at: new Date().toISOString(),
             })
             .eq('id', (savedTheme as any).id);

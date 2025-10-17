@@ -164,11 +164,17 @@ export default function ResponsesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Surveys</SelectItem>
-                  {surveys.map((survey) => (
-                    <SelectItem key={survey.id} value={survey.id}>
-                      {survey.title}
+                  {Array.isArray(surveys) && surveys.length > 0 ? (
+                    surveys.map((survey) => (
+                      <SelectItem key={survey.id} value={survey.id}>
+                        {survey.title}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-surveys" disabled>
+                      No surveys available
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -200,7 +206,8 @@ export default function ResponsesPage() {
             </CardContent>
           </Card>
         ) : (
-          filteredResponses.map((response) => (
+          Array.isArray(filteredResponses) && filteredResponses.length > 0 ? (
+            filteredResponses.map((response) => (
             <Card key={response.id}>
               <CardHeader>
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
@@ -218,21 +225,34 @@ export default function ResponsesPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 sm:space-y-4">
-                {response.surveys?.questions?.questions?.map((question: any) => (
-                  <div key={question.id} className="space-y-2">
-                    <p className="font-semibold text-xs sm:text-sm text-gray-700 break-words">
-                      {question.question || question.text}
-                    </p>
-                    <div className="p-2 sm:p-3 bg-gray-50 rounded-md">
-                      <p className="text-xs sm:text-sm text-gray-800 whitespace-pre-wrap break-words">
-                        {response.responses[question.id] || 'No response'}
+                {Array.isArray(response.surveys?.questions) && response.surveys.questions.length > 0 ? (
+                  response.surveys.questions.map((question: any) => (
+                    <div key={question.id} className="space-y-2">
+                      <p className="font-semibold text-xs sm:text-sm text-gray-700 break-words">
+                        {question.question || question.text}
                       </p>
+                      <div className="p-2 sm:p-3 bg-gray-50 rounded-md">
+                        <p className="text-xs sm:text-sm text-gray-800 whitespace-pre-wrap break-words">
+                          {response.responses[question.id] || 'No response'}
+                        </p>
+                      </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="text-center text-gray-500 py-4">
+                    <p className="text-sm">No questions found for this response</p>
                   </div>
-                ))}
+                )}
               </CardContent>
             </Card>
-          ))
+            ))
+          ) : (
+            <Card>
+              <CardContent className="text-center text-gray-500 py-8">
+                <p className="text-sm">No responses found</p>
+              </CardContent>
+            </Card>
+          )
         )}
       </div>
 

@@ -79,3 +79,4 @@ SELECT
 FROM tags 
 WHERE company_id = '550e8400-e29b-41d4-a716-446655440002'
 ORDER BY usage_count DESC, normalized_name;
+

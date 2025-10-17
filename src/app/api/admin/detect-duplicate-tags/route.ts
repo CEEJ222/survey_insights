@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('✅ Admin user found, company_id:', adminUser.company_id);
+    console.log('✅ Admin user found, company_id:', (adminUser as any).company_id);
 
     // Parse request body
     const body = await request.json();
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     console.log(`🎯 Action: ${action}`);
 
     // Create duplicate detector
-    const detector = createDuplicateTagDetector(adminUser.company_id);
+    const detector = createDuplicateTagDetector((adminUser as any).company_id);
 
     if (action === 'detect') {
       // Just detect duplicates without merging
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
     const { count: tagCount, error: countError } = await supabaseAdmin
       .from('tags')
       .select('*', { count: 'exact', head: true })
-      .eq('company_id', adminUser.company_id)
+      .eq('company_id', (adminUser as any).company_id)
       .eq('is_active', true);
 
     if (countError) {
@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       tagCount: tagCount || 0,
-      companyId: adminUser.company_id,
+      companyId: (adminUser as any).company_id,
       message: `System has ${tagCount || 0} active tags`
     });
 
@@ -168,3 +168,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

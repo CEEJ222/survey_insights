@@ -214,7 +214,7 @@ export default function TagsThemesSettings() {
           status,
           created_at
         `)
-        .eq('company_id', adminUser.company_id)
+        .eq('company_id', (adminUser as any).company_id)
         .order('priority_score', { ascending: false })
 
       if (error) {
@@ -301,7 +301,7 @@ export default function TagsThemesSettings() {
             company_id
           )
         `)
-        .eq('surveys.company_id', adminUser.company_id)
+        .eq('surveys.company_id', (adminUser as any).company_id)
         .not('responses', 'is', null)
         .limit(10) // Process 10 at a time for testing
 
@@ -323,7 +323,7 @@ export default function TagsThemesSettings() {
       // Process each response
       for (const response of responses) {
         try {
-          const responseText = extractTextFromResponses(response.responses)
+          const responseText = extractTextFromResponses((response as any).responses)
           if (!responseText.trim()) continue
 
           const apiResponse = await fetch('/api/admin/process-survey-response', {
@@ -333,7 +333,7 @@ export default function TagsThemesSettings() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              surveyResponseId: response.id,
+              surveyResponseId: (response as any).id,
             }),
           })
 
@@ -894,14 +894,14 @@ export default function TagsThemesSettings() {
                           <Badge variant={theme.confidence > 0.8 ? "default" : "secondary"}>
                             {Math.round(theme.confidence * 100)}% priority
                           </Badge>
-                          {theme.trend && (
+                          {(theme as any).trend && (
                             <Badge variant="outline">
-                              {theme.trend === 'increasing' ? '📈' : theme.trend === 'decreasing' ? '📉' : '📊'} {theme.trend}
+                              {(theme as any).trend === 'increasing' ? '📈' : (theme as any).trend === 'decreasing' ? '📉' : '📊'} {(theme as any).trend}
                             </Badge>
                           )}
-                          {theme.status && (
+                          {(theme as any).status && (
                             <Badge variant="secondary">
-                              {theme.status}
+                              {(theme as any).status}
                             </Badge>
                           )}
                         </div>
@@ -1036,7 +1036,7 @@ export default function TagsThemesSettings() {
                     <Users className="h-4 w-4 text-blue-600" />
                     <span className="text-sm font-medium text-blue-900">Customers Affected</span>
                   </div>
-                  <div className="text-2xl font-bold text-blue-900">{selectedTheme.customer_count || 0}</div>
+                  <div className="text-2xl font-bold text-blue-900">{(selectedTheme as any).customer_count || 0}</div>
                 </div>
                 
                 <div className="bg-green-50 p-4 rounded-lg">
@@ -1086,32 +1086,32 @@ export default function TagsThemesSettings() {
               </div>
 
               {/* Trend */}
-              {selectedTheme.trend && (
+              {(selectedTheme as any).trend && (
                 <div>
                   <h3 className="font-semibold mb-2">Trend</h3>
                   <Badge variant="outline">
-                    {selectedTheme.trend === 'increasing' ? '📈' : selectedTheme.trend === 'decreasing' ? '📉' : '📊'} {selectedTheme.trend}
+                    {(selectedTheme as any).trend === 'increasing' ? '📈' : (selectedTheme as any).trend === 'decreasing' ? '📉' : '📊'} {(selectedTheme as any).trend}
                   </Badge>
                 </div>
               )}
 
               {/* Status */}
-              {selectedTheme.status && (
+              {(selectedTheme as any).status && (
                 <div>
                   <h3 className="font-semibold mb-2">Status</h3>
-                  <Badge variant={selectedTheme.status === 'active' ? 'default' : 'secondary'}>
-                    {selectedTheme.status}
+                  <Badge variant={(selectedTheme as any).status === 'active' ? 'default' : 'secondary'}>
+                    {(selectedTheme as any).status}
                   </Badge>
                 </div>
               )}
 
               {/* Created Date */}
-              {selectedTheme.created_at && (
+              {(selectedTheme as any).created_at && (
                 <div>
                   <h3 className="font-semibold mb-2">Created</h3>
                   <div className="flex items-center gap-2 text-gray-600">
                     <Calendar className="h-4 w-4" />
-                    {new Date(selectedTheme.created_at).toLocaleDateString()}
+                    {new Date((selectedTheme as any).created_at).toLocaleDateString()}
                   </div>
                 </div>
               )}
@@ -1171,8 +1171,8 @@ export default function TagsThemesSettings() {
                   <select
                     id="theme-status"
                     className="w-full p-2 border border-gray-300 rounded-md"
-                    value={editingTheme.status || 'active'}
-                    onChange={(e) => setEditingTheme({...editingTheme, status: e.target.value as 'active' | 'archived' | 'in_progress'})}
+                    value={(editingTheme as any).status || 'active'}
+                    onChange={(e) => setEditingTheme({...(editingTheme as any), status: e.target.value as 'active' | 'archived' | 'in_progress'})}
                   >
                     <option value="active">Active</option>
                     <option value="in_progress">In Progress</option>
@@ -1233,7 +1233,7 @@ export default function TagsThemesSettings() {
                       body: JSON.stringify({
                         name: editingTheme.title,
                         description: editingTheme.description,
-                        status: editingTheme.status
+                        status: (editingTheme as any).status
                       })
                     })
 

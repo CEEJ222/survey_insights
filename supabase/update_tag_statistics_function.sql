@@ -36,3 +36,4 @@ BEGIN
   RAISE NOTICE 'Updated tag statistics for company %', p_company_id;
 END;
 $$ LANGUAGE plpgsql;
+

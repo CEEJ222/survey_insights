@@ -272,7 +272,7 @@ export default function NewSurveyPage() {
         <SurveyPreview
           title={title}
           description={description}
-          questions={questions}
+          questions={questions.map(q => ({ ...q, question: q.text }))}
           onClose={() => setShowPreview(false)}
         />
       )}

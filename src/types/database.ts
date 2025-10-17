@@ -900,6 +900,305 @@ export interface Database {
           created_at?: string
         }
       }
+
+      // ============================================================================
+      // STRATEGY LAYER TABLES
+      // ============================================================================
+
+      company_vision: {
+        Row: {
+          id: string
+          company_id: string
+          vision_statement: string
+          mission_statement: string | null
+          version: number
+          is_active: boolean
+          active_from: string
+          active_until: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          vision_statement: string
+          mission_statement?: string | null
+          version?: number
+          is_active?: boolean
+          active_from?: string
+          active_until?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          vision_statement?: string
+          mission_statement?: string | null
+          version?: number
+          is_active?: boolean
+          active_from?: string
+          active_until?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+
+      product_strategy: {
+        Row: {
+          id: string
+          company_id: string
+          vision_id: string | null
+          title: string
+          description: string | null
+          target_customer_description: string | null
+          target_customer_segments: string[]
+          problems_we_solve: string[]
+          problems_we_dont_solve: string[]
+          how_we_win: string | null
+          strategic_keywords: Json
+          competitors: Json
+          version: number
+          is_active: boolean
+          active_from: string
+          active_until: string | null
+          update_reason: string | null
+          what_we_learned: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          vision_id?: string | null
+          title: string
+          description?: string | null
+          target_customer_description?: string | null
+          target_customer_segments?: string[]
+          problems_we_solve?: string[]
+          problems_we_dont_solve?: string[]
+          how_we_win?: string | null
+          strategic_keywords?: Json
+          competitors?: Json
+          version?: number
+          is_active?: boolean
+          active_from?: string
+          active_until?: string | null
+          update_reason?: string | null
+          what_we_learned?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          vision_id?: string | null
+          title?: string
+          description?: string | null
+          target_customer_description?: string | null
+          target_customer_segments?: string[]
+          problems_we_solve?: string[]
+          problems_we_dont_solve?: string[]
+          how_we_win?: string | null
+          strategic_keywords?: Json
+          competitors?: Json
+          version?: number
+          is_active?: boolean
+          active_from?: string
+          active_until?: string | null
+          update_reason?: string | null
+          what_we_learned?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+
+      strategic_objectives: {
+        Row: {
+          id: string
+          company_id: string
+          strategy_id: string
+          objective: string
+          quarter: string
+          key_results: Json
+          owner_id: string | null
+          status: string
+          final_results: Json | null
+          retrospective_url: string | null
+          retrospective_notes: string | null
+          starts_at: string | null
+          ends_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          strategy_id: string
+          objective: string
+          quarter: string
+          key_results?: Json
+          owner_id?: string | null
+          status?: string
+          final_results?: Json | null
+          retrospective_url?: string | null
+          retrospective_notes?: string | null
+          starts_at?: string | null
+          ends_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          strategy_id?: string
+          objective?: string
+          quarter?: string
+          key_results?: Json
+          owner_id?: string | null
+          status?: string
+          final_results?: Json | null
+          retrospective_url?: string | null
+          retrospective_notes?: string | null
+          starts_at?: string | null
+          ends_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+
+      initiatives: {
+        Row: {
+          id: string
+          company_id: string
+          theme_id: string | null
+          objective_id: string | null
+          title: string
+          description: string | null
+          owner_id: string | null
+          team_ids: string[]
+          effort: string
+          target_quarter: string | null
+          timeline_bucket: string
+          status: string
+          started_at: string | null
+          shipped_at: string | null
+          actual_impact: string | null
+          retrospective_url: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          theme_id?: string | null
+          objective_id?: string | null
+          title: string
+          description?: string | null
+          owner_id?: string | null
+          team_ids?: string[]
+          effort?: string
+          target_quarter?: string | null
+          timeline_bucket?: string
+          status?: string
+          started_at?: string | null
+          shipped_at?: string | null
+          actual_impact?: string | null
+          retrospective_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          theme_id?: string | null
+          objective_id?: string | null
+          title?: string
+          description?: string | null
+          owner_id?: string | null
+          team_ids?: string[]
+          effort?: string
+          target_quarter?: string | null
+          timeline_bucket?: string
+          status?: string
+          started_at?: string | null
+          shipped_at?: string | null
+          actual_impact?: string | null
+          retrospective_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+
+      // Enhanced themes table with strategic scoring
+      themes: {
+        Row: {
+          id: string
+          company_id: string
+          title: string
+          description: string | null
+          feedback_count: number
+          sentiment_score: number | null
+          priority_score: number
+          strategic_alignment_score: number | null
+          strategic_reasoning: string | null
+          strategic_conflicts: string[]
+          strategic_opportunities: string[]
+          final_priority_score: number | null
+          recommendation: string | null
+          pm_notes: string | null
+          declined_reason: string | null
+          initiative_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          title: string
+          description?: string | null
+          feedback_count?: number
+          sentiment_score?: number | null
+          priority_score?: number
+          strategic_alignment_score?: number | null
+          strategic_reasoning?: string | null
+          strategic_conflicts?: string[]
+          strategic_opportunities?: string[]
+          final_priority_score?: number | null
+          recommendation?: string | null
+          pm_notes?: string | null
+          declined_reason?: string | null
+          initiative_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          title?: string
+          description?: string | null
+          feedback_count?: number
+          sentiment_score?: number | null
+          priority_score?: number
+          strategic_alignment_score?: number | null
+          strategic_reasoning?: string | null
+          strategic_conflicts?: string[]
+          strategic_opportunities?: string[]
+          final_priority_score?: number | null
+          recommendation?: string | null
+          pm_notes?: string | null
+          declined_reason?: string | null
+          initiative_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     
     Views: {
@@ -986,4 +1285,104 @@ export type Interview = Tables<'interviews'>
 export type Review = Tables<'reviews'>
 export type AIInsight = Tables<'ai_insights'>
 export type CustomerHealthScore = Tables<'customer_health_scores'>
+
+// Strategy layer types
+export type CompanyVision = Tables<'company_vision'>
+export type ProductStrategy = Tables<'product_strategy'>
+export type StrategicObjective = Tables<'strategic_objectives'>
+export type Initiative = Tables<'initiatives'>
+export type Theme = Tables<'themes'>
+
+// ============================================================================
+// STRATEGY LAYER HELPER TYPES
+// ============================================================================
+
+export interface StrategicKeyword {
+  keyword: string
+  weight: number // -1.0 to +1.0
+  reasoning: string
+}
+
+export interface Competitor {
+  name: string
+  their_strength: string
+  our_differentiation: string
+}
+
+export interface KeyResult {
+  metric: string
+  baseline: number
+  target: number
+  current?: number
+  unit: string
+}
+
+export interface KeyResultProgress {
+  metric: string
+  current: number
+  unit: string
+  updated_at: string
+}
+
+// Request/Response types for API endpoints
+export interface CreateVisionRequest {
+  vision_statement: string
+  mission_statement?: string
+}
+
+export interface UpdateVisionRequest {
+  vision_statement?: string
+  mission_statement?: string
+}
+
+export interface CreateStrategyRequest {
+  title: string
+  description?: string
+  target_customer_description?: string
+  target_customer_segments?: string[]
+  problems_we_solve?: string[]
+  problems_we_dont_solve?: string[]
+  how_we_win?: string
+  strategic_keywords?: StrategicKeyword[]
+  competitors?: Competitor[]
+  update_reason?: string
+  what_we_learned?: string
+}
+
+export interface UpdateStrategyRequest {
+  title?: string
+  description?: string
+  target_customer_description?: string
+  target_customer_segments?: string[]
+  problems_we_solve?: string[]
+  problems_we_dont_solve?: string[]
+  how_we_win?: string
+  strategic_keywords?: StrategicKeyword[]
+  competitors?: Competitor[]
+  update_reason?: string
+  what_we_learned?: string
+}
+
+export interface CreateOKRRequest {
+  objective: string
+  quarter: string
+  key_results?: KeyResult[]
+  owner_id?: string
+  starts_at?: string
+  ends_at?: string
+}
+
+export interface UpdateOKRRequest {
+  objective?: string
+  quarter?: string
+  key_results?: KeyResult[]
+  owner_id?: string
+  status?: 'planning' | 'active' | 'completed' | 'missed' | 'deprioritized'
+  starts_at?: string
+  ends_at?: string
+}
+
+export interface UpdateOKRProgressRequest {
+  key_results: KeyResultProgress[]
+}
 

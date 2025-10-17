@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Search, Users, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Loader2, Search, Users, TrendingUp, AlertTriangle, CheckCircle, Calculator } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/use-toast'
 
 interface Customer {
   id: string
@@ -44,6 +45,8 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('')
   const [healthFilter, setHealthFilter] = useState('all')
   const [error, setError] = useState('')
+  const [calculatingHealth, setCalculatingHealth] = useState(false)
+  const { toast } = useToast()
 
   const fetchCustomers = async (page = 1) => {
     try {
@@ -125,6 +128,46 @@ export default function CustomersPage() {
     return formatDate(dateString)
   }
 
+  const calculateHealthScores = async () => {
+    try {
+      setCalculatingHealth(true)
+      
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No session found')
+      }
+
+      const response = await fetch('/api/admin/customers/calculate-health', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to calculate health scores')
+      }
+
+      toast({
+        title: 'Health Scores Calculated',
+        description: 'Customer health scores have been updated successfully.',
+      })
+
+      // Refresh the customer data
+      await fetchCustomers(1)
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to calculate health scores',
+        variant: 'destructive',
+      })
+    } finally {
+      setCalculatingHealth(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -135,9 +178,24 @@ export default function CustomersPage() {
             Manage and analyze your customer feedback profiles
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Users className="h-5 w-5 text-gray-400" />
-          <span className="text-sm text-gray-600">{pagination.total} customers</span>
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={calculateHealthScores}
+            disabled={calculatingHealth}
+            variant="outline"
+            size="sm"
+          >
+            {calculatingHealth ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Calculator className="h-4 w-4 mr-2" />
+            )}
+            Calculate Health Scores
+          </Button>
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-gray-400" />
+            <span className="text-sm text-gray-600">{pagination.total} customers</span>
+          </div>
         </div>
       </div>
 

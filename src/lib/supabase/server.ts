@@ -16,3 +16,6 @@ export const supabaseAdmin = createClient<Database>(
   }
 );
 
+// Export the createClient function for use in other modules
+export { createClient };
+
